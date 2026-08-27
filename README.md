@@ -66,11 +66,19 @@ window can live parked out of sight.
 |---|---|---|
 | Left click | Open WhatsApp, bring it back, or put it away | same |
 | Middle click | Open or focus it, never hides it | Close WhatsApp |
-| Right click | Menu: Open / Hide / Quit WhatsApp | Open or focus it, never hides it |
+| Right click | Menu: Open / Hide / Launch on Login / Quit WhatsApp | Open or focus it, never hides it |
 
 Hiding does not close WhatsApp: the window moves to the `special:whatsapp`
 workspace, where it keeps running and keeps counting. Bringing it back returns
 it to the workspace it was last used on and takes you there.
+
+**Launch on Login** is a checkmark in the tray menu, the same one Slack has:
+with it on, the daemon opens WhatsApp a few seconds after login unless it is
+already running — parked out of sight if `--start-hidden` is set, so login ends
+with nothing on screen but the icon and its count. The choice is remembered in
+`~/.config/whatsapp-tray/settings.json` and outlives the session; `--autostart`
+only decides what happens until the menu is used once. It needs the daemon
+itself to start at login, which is step 2 above.
 
 ## Daemon options
 
@@ -86,7 +94,7 @@ it to the workspace it was last used on and takes you there.
 | `--no-hide` | — | Clicking a focused window does not park it |
 | `--start-hidden` | off | Park the window shortly after opening it |
 | `--hide-after` | `8` | Seconds of loading before it is parked |
-| `--autostart` | off | Open WhatsApp on login when it is not already running |
+| `--autostart` | off | Open WhatsApp on login when it is not already running, until the menu's "Launch on Login" is used |
 | `--glyph` | `󰖣` | The character drawn as the icon |
 | `--font-family` | `JetBrainsMono Nerd Font` | Family to take the glyph from |
 | `--font` | — | Path to a font file, overriding the family |

@@ -43,6 +43,45 @@ WATCHED_EVENTS = (
 )
 
 
+# ------------------------------------------------------------- preferences
+#
+# The menu has to outlive the process that drew it: "Launch on Login" means
+# nothing if it is forgotten at logout. The daemon owns no config file
+# otherwise, so the choices its menu offers live here, and the command line
+# only says what to do until one has been made.
+
+PREFS_PATH = os.path.join(
+    os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"),
+    "whatsapp-tray", "settings.json")
+
+
+def read_prefs():
+    try:
+        with open(PREFS_PATH, encoding="utf-8") as handle:
+            values = json.load(handle)
+    except (OSError, ValueError):
+        return {}
+    return values if isinstance(values, dict) else {}
+
+
+def read_flag(key, fallback):
+    value = read_prefs().get(key)
+    return bool(fallback) if value is None else bool(value)
+
+
+def write_pref(key, value):
+    """Rewritten whole, so a hand-edited file keeps whatever else is in it."""
+    values = read_prefs()
+    values[key] = value
+    try:
+        os.makedirs(os.path.dirname(PREFS_PATH), exist_ok=True)
+        with open(PREFS_PATH, "w", encoding="utf-8") as handle:
+            json.dump(values, handle, indent=2)
+            handle.write("\n")
+    except OSError:
+        pass
+
+
 # --------------------------------------------------------------- compositor
 
 def hyprctl(args, capture=True):
@@ -438,7 +477,7 @@ class TrayMenu(dbus.service.Object):
     interface, which is the only reason it exists here.
     """
 
-    OPEN, HIDE, SEPARATOR, QUIT = 1, 2, 3, 4
+    OPEN, HIDE, SEP_ACTIONS, LAUNCH, SEP_QUIT, QUIT = 1, 2, 3, 4, 5, 6
 
     def __init__(self, bus_name, app):
         super().__init__(bus_name, MENU_PATH)
@@ -450,19 +489,28 @@ class TrayMenu(dbus.service.Object):
         running = self.app.window.running
         parked = self.app.window.parked
         return [
-            (self.OPEN, "Open WhatsApp", True, False),
-            (self.HIDE, "Hide WhatsApp", running and not parked, False),
-            (self.SEPARATOR, "", False, True),
-            (self.QUIT, "Quit WhatsApp", running, False),
+            (self.OPEN, "Open WhatsApp", True, False, None),
+            (self.HIDE, "Hide WhatsApp", running and not parked, False, None),
+            (self.SEP_ACTIONS, "", False, True, None),
+            (self.LAUNCH, "Launch on Login", True, False,
+             self.app.launch_on_login),
+            (self.SEP_QUIT, "", False, True, None),
+            (self.QUIT, "Quit WhatsApp", running, False, None),
         ]
 
-    def entry(self, ident, label, enabled, separator):
+    def entry(self, ident, label, enabled, separator, checked=None):
         props = {"visible": dbus.Boolean(True)}
         if separator:
             props["type"] = dbus.String("separator")
         else:
             props["label"] = dbus.String(label)
             props["enabled"] = dbus.Boolean(enabled)
+            # A checkable item is an ordinary one that declares a toggle:
+            # hosts draw the checkmark from these two properties, and an item
+            # carrying neither is drawn without room for one.
+            if checked is not None:
+                props["toggle-type"] = dbus.String("checkmark")
+                props["toggle-state"] = dbus.Int32(1 if checked else 0)
         return dbus.Struct(
             (dbus.Int32(ident), dbus.Dictionary(props, signature="sv"),
              dbus.Array([], signature="v")),
@@ -516,6 +564,12 @@ class TrayMenu(dbus.service.Object):
             self.app.open()
         elif ident == self.HIDE:
             self.app.hide()
+        elif ident == self.LAUNCH:
+            self.app.set_launch_on_login(not self.app.launch_on_login)
+            # The host cached the checkmark when it drew the menu; without
+            # this it keeps drawing the old one until the layout changes for
+            # some other reason.
+            self.invalidate()
         elif ident == self.QUIT:
             self.app.quit_window()
 
@@ -590,6 +644,7 @@ class App:
                          options.glyph_offset)
         self.icon_name = "whatsapp"
         self.unread = 0
+        self.launch_on_login = read_flag("launchOnLogin", options.autostart)
         self.item = None
         self.menu = None
         self.pending = None
@@ -768,6 +823,10 @@ class App:
         else:
             self.focus()
 
+    def set_launch_on_login(self, enabled):
+        self.launch_on_login = bool(enabled)
+        write_pref("launchOnLogin", self.launch_on_login)
+
     def hide(self):
         self.window.refresh()
         if self.window.running and not self.window.parked:
@@ -836,7 +895,9 @@ def main():
     parser.add_argument("--start-hidden", action="store_true",
                         help="park the window shortly after opening it")
     parser.add_argument("--autostart", action="store_true",
-                        help="open WhatsApp on launch when it is not running")
+                        help="open WhatsApp on launch when it is not running; "
+                             "only until \"Launch on Login\" is used, which "
+                             "remembers the choice from then on")
     parser.add_argument("--hide-after", type=int, default=8,
                         help="seconds of loading before parking it")
     parser.add_argument("--glyph", default="󰖣",
@@ -888,7 +949,7 @@ def main():
                             dbus_interface="org.freedesktop.DBus",
                             arg0=WATCHER_NAME)
 
-    if options.autostart and not app.window.running:
+    if app.launch_on_login and not app.window.running:
         # Late enough that the compositor has finished bringing the session
         # up, so the window does not fight the rest of the login for the
         # screen before it gets parked.

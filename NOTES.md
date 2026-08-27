@@ -40,6 +40,17 @@ The right-click menu is a second interface, `com.canonical.dbusmenu`. An SNI
 carries no actions of its own beyond a click, so every tray icon that offers a
 "Quit" is answering that interface.
 
+A checkable entry in that menu — "Launch on Login" — is an ordinary item that
+declares `toggle-type = "checkmark"` and a `toggle-state`; there is no checkbox
+*type*, and an item carrying neither property is drawn with no room for a mark.
+The host caches what it was handed, so flipping the state has to be followed by
+a `LayoutUpdated` or the old checkmark stays on screen until something else
+invalidates the menu.
+
+The choice behind it lives in `~/.config/whatsapp-tray/settings.json`: a menu
+that forgets at logout is not a login setting, and the daemon has no other
+config file — everything else reaches it on the command line.
+
 The unread count is painted into the icon pixmap because the tray renders
 whatever image an item hands it: `Status = NeedsAttention` is ignored, and only
 a `-symbolic` icon *name* gets recolored, which a pixmap cannot carry.

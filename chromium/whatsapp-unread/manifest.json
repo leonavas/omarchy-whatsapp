@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "WhatsApp unread in the window title",
+  "version": "1.0",
+  "description": "Counts the unread chats in the WhatsApp Web DOM and writes them into the window title, where the Omarchy tray item can read them. Installed by the leonavas.whatsapp plugin.",
+  "content_scripts": [
+    {
+      "matches": ["https://web.whatsapp.com/*"],
+      "js": ["unread.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

@@ -1,0 +1,196 @@
+{
+  "schemaVersion": 1,
+  "id": "leonavas.whatsapp",
+  "name": "WhatsApp",
+  "version": "1.0.0",
+  "author": "leonavas",
+  "license": "MIT",
+  "description": "A tray-style WhatsApp button for the bar: opens the web app, parks it out of sight, and carries the unread count as a badge.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "WhatsApp.qml"
+  },
+  "barWidget": {
+    "displayName": "WhatsApp",
+    "description": "WhatsApp as a tray icon: click to show or hide the window, with a badge while there are unread chats.",
+    "category": "Status",
+    "aliases": [
+      "whatsapp",
+      "zap",
+      "chat",
+      "messages",
+      "tray"
+    ],
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "url": "https://web.whatsapp.com/",
+      "launchCommand": "",
+      "windowClass": "whatsapp",
+      "iconStyle": "Glyph",
+      "glyph": "󰖣",
+      "glyphSize": 0,
+      "glyphOffsetY": -0.5,
+      "badge": "Dot",
+      "badgeColor": "",
+      "tintWhenUnread": true,
+      "hideMode": "Special workspace",
+      "specialWorkspace": "whatsapp",
+      "startHidden": true,
+      "hideAfterLaunch": 8,
+      "autoStart": false,
+      "dimWhenClosed": true,
+      "hideWhenNotRunning": false,
+      "middleClickCloses": true
+    },
+    "schema": [
+      {
+        "key": "url",
+        "type": "string",
+        "label": "Address to open",
+        "defaultValue": "https://web.whatsapp.com/",
+        "description": "Opened with omarchy-launch-webapp, i.e. as an app window of the default browser."
+      },
+      {
+        "key": "launchCommand",
+        "type": "string",
+        "label": "Custom launch command",
+        "defaultValue": "",
+        "description": "Left empty, the widget runs `omarchy-launch-webapp <url>`. Set it to run a native client instead, e.g. `whatsapp-for-linux`."
+      },
+      {
+        "key": "windowClass",
+        "type": "string",
+        "label": "Window class to watch",
+        "defaultValue": "whatsapp",
+        "description": "Matched as a case-insensitive substring of the window class. \"whatsapp\" covers the browser web app (chrome-web.whatsapp.com__-Default) and native clients alike."
+      },
+      {
+        "key": "iconStyle",
+        "type": "enum",
+        "label": "Icon",
+        "options": [
+          "Glyph",
+          "App icon"
+        ],
+        "defaultValue": "Glyph",
+        "description": "Glyph draws the Nerd Font logo in the bar's own color; App icon draws the green WhatsApp icon from the icon theme."
+      },
+      {
+        "key": "glyph",
+        "type": "string",
+        "label": "Glyph",
+        "defaultValue": "󰖣",
+        "description": "Only used by the Glyph style. Any Nerd Font character works."
+      },
+      {
+        "key": "glyphSize",
+        "type": "integer",
+        "label": "Glyph size (px)",
+        "min": 0,
+        "max": 32,
+        "step": 1,
+        "defaultValue": 0,
+        "description": "0 follows the bar, one pixel under its icon size — which is what makes this glyph's ink box match the icons around it. Only used by the Glyph style."
+      },
+      {
+        "key": "glyphOffsetY",
+        "type": "number",
+        "label": "Vertical nudge (px)",
+        "min": -6,
+        "max": 6,
+        "step": 0.5,
+        "defaultValue": -0.5,
+        "description": "Negative moves the glyph up. The bar lines glyphs up by the font's line box rather than by their ink, so an icon glyph with unusual metrics needs a nudge to sit on the same line as its neighbours."
+      },
+      {
+        "key": "badge",
+        "type": "enum",
+        "label": "Unread badge",
+        "options": [
+          "Count",
+          "Dot",
+          "None"
+        ],
+        "defaultValue": "Dot",
+        "description": "Count writes the number of unread chats over the icon, Dot only marks that there is something new."
+      },
+      {
+        "key": "badgeColor",
+        "type": "string",
+        "label": "Badge color",
+        "defaultValue": "",
+        "description": "A hex color such as #25d366. Empty follows the theme's urgent color, like the rest of the bar."
+      },
+      {
+        "key": "tintWhenUnread",
+        "type": "boolean",
+        "label": "Color the icon while there are unread messages",
+        "defaultValue": true
+      },
+      {
+        "key": "hideMode",
+        "type": "enum",
+        "label": "What a click on the open window does",
+        "options": [
+          "Special workspace",
+          "Never hide"
+        ],
+        "defaultValue": "Special workspace",
+        "description": "Special workspace parks the window in a hidden Hyprland special workspace — it keeps running and keeps counting, like an app minimized to the tray."
+      },
+      {
+        "key": "specialWorkspace",
+        "type": "string",
+        "label": "Name of the special workspace",
+        "defaultValue": "whatsapp",
+        "description": "Used as special:<name>."
+      },
+      {
+        "key": "startHidden",
+        "type": "boolean",
+        "label": "Park the window right after opening it",
+        "defaultValue": true,
+        "description": "The window loads, then disappears into the special workspace on its own, leaving only the bar icon."
+      },
+      {
+        "key": "hideAfterLaunch",
+        "type": "integer",
+        "label": "Seconds before parking it (s)",
+        "min": 0,
+        "max": 60,
+        "step": 1,
+        "defaultValue": 8,
+        "description": "Time for the page to load before it is put away. Too short and WhatsApp may never finish loading."
+      },
+      {
+        "key": "autoStart",
+        "type": "boolean",
+        "label": "Open WhatsApp when the shell starts",
+        "defaultValue": false,
+        "description": "With \"Park the window right after opening it\", WhatsApp comes up on login already out of the way, counting messages in the bar."
+      },
+      {
+        "key": "dimWhenClosed",
+        "type": "boolean",
+        "label": "Dim the icon while WhatsApp is not running",
+        "defaultValue": true
+      },
+      {
+        "key": "hideWhenNotRunning",
+        "type": "boolean",
+        "label": "Remove the icon from the bar while WhatsApp is not running",
+        "defaultValue": false,
+        "description": "Off by default: with the icon always there, the bar keeps the button that opens WhatsApp."
+      },
+      {
+        "key": "middleClickCloses",
+        "type": "boolean",
+        "label": "Middle click closes WhatsApp",
+        "defaultValue": true
+      }
+    ]
+  }
+}

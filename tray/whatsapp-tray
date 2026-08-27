@@ -1,0 +1,903 @@
+#!/usr/bin/env python3
+"""Publish WhatsApp as a StatusNotifierItem, so it sits in the tray next to
+Slack instead of beside it.
+
+The bar widget in this plugin draws its own icon because a Quickshell plugin
+can only *consume* tray items — `Quickshell.Services.SystemTray` is a host, it
+has no API to publish one. A real tray item has to come from a process that
+owns a D-Bus name and answers the StatusNotifierItem interface, which is all
+this daemon is.
+
+Everything it knows comes from the same place the widget reads: the title of
+the WhatsApp window, which carries the unread count as "(3) WhatsApp". The
+count is painted into the icon itself, because the host renders whatever
+pixmap the item hands it and ignores NeedsAttention.
+"""
+
+import argparse
+import json
+import os
+import socket
+import subprocess
+import sys
+import threading
+
+import dbus
+import dbus.service
+from dbus.mainloop.glib import DBusGMainLoop
+from gi.repository import GLib
+
+SNI_IFACE = "org.kde.StatusNotifierItem"
+SNI_PATH = "/StatusNotifierItem"
+WATCHER_NAME = "org.kde.StatusNotifierWatcher"
+WATCHER_PATH = "/StatusNotifierWatcher"
+MENU_IFACE = "com.canonical.dbusmenu"
+MENU_PATH = "/MenuBar"
+
+# Any of these means the window set, a title, or the focus may have moved.
+# Hyprland is chatty, so the refresh they trigger is debounced.
+WATCHED_EVENTS = (
+    "windowtitle", "windowtitlev2", "openwindow", "closewindow",
+    "activewindow", "activewindowv2", "movewindow", "movewindowv2",
+    "activespecial", "activespecialv2",
+)
+
+
+# --------------------------------------------------------------- compositor
+
+def hyprctl(args, capture=True):
+    try:
+        return subprocess.run(["hyprctl", *args], capture_output=capture,
+                              text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def hypr_json(what):
+    result = hyprctl(["-j", what])
+    if result is None or result.returncode != 0:
+        return []
+    try:
+        return json.loads(result.stdout)
+    except ValueError:
+        return []
+
+
+def dispatch(lua_form, legacy_form):
+    """Hyprland 0.5x takes dispatchers as Lua; older ones only the flat form.
+
+    Same try-then-fall-back the omarchy scripts use, rather than probing the
+    version: a failed Lua dispatch is cheap and unambiguous.
+    """
+    result = hyprctl(["dispatch", lua_form])
+    if result is not None and result.returncode == 0 \
+            and "error" not in (result.stdout or "").lower():
+        return True
+    result = hyprctl(["dispatch", *legacy_form])
+    return result is not None and result.returncode == 0
+
+
+def active_workspace():
+    """Name of the workspace in focus, for a window with nowhere to go back to."""
+    data = hypr_json("activeworkspace")
+    return str(data.get("name", "")) if isinstance(data, dict) else ""
+
+
+def unread_from_title(title):
+    """WhatsApp Web writes the number of chats with something new into the
+    page title, and a browser app window carries it verbatim."""
+    import re
+    match = re.match(r"\s*\((\d+)\+?\)", title or "")
+    if not match:
+        match = re.search(r"\((\d+)\+?\)\s*$", title or "")
+    if not match:
+        return 0
+    try:
+        count = int(match.group(1))
+    except ValueError:
+        return 0
+    return count if count > 0 else 0
+
+
+class Window:
+    """The WhatsApp window as the compositor currently sees it."""
+
+    def __init__(self, needle, special):
+        self.needle = needle.lower()
+        self.special = special
+        self.client = None
+        # Where the window belongs when it is not put away. Remembered rather
+        # than configured, so it goes back where it was last used instead of
+        # surfacing on top of whatever workspace happens to be in front.
+        self.home = ""
+
+    def refresh(self):
+        found = None
+        for client in hypr_json("clients"):
+            if self.needle not in str(client.get("class", "")).lower():
+                continue
+            if client.get("focusHistoryID") == 0:
+                found = client
+                break
+            if found is None:
+                found = client
+        self.client = found
+        if found:
+            name = str((found.get("workspace") or {}).get("name", ""))
+            if name and not name.startswith("special:"):
+                self.home = name
+        return found
+
+    @property
+    def running(self):
+        return self.client is not None
+
+    @property
+    def title(self):
+        return str(self.client.get("title", "")) if self.client else ""
+
+    @property
+    def address(self):
+        if not self.client:
+            return ""
+        value = str(self.client.get("address", ""))
+        return value if value.startswith("0x") else "0x" + value
+
+    @property
+    def focused(self):
+        return bool(self.client) and self.client.get("focusHistoryID") == 0
+
+    @property
+    def parked(self):
+        if not self.client:
+            return False
+        workspace = self.client.get("workspace") or {}
+        return str(workspace.get("name", "")) == "special:" + self.special
+
+
+# --------------------------------------------------------------------- icon
+
+THEME_SHELL_TOML = os.path.expanduser(
+    "~/.local/state/omarchy/current/theme/shell.toml")
+
+
+def read_theme():
+    """The bar's own colors, so the tray icon is the same white as the glyph
+    beside it and the badge the same urgent tone the bar uses elsewhere."""
+    colors = {"text": "#cacccc", "active": "#a55555"}
+    try:
+        section = None
+        with open(THEME_SHELL_TOML, encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if line.startswith("["):
+                    section = line.strip("[]")
+                    continue
+                if section != "bar" or "=" not in line or line.startswith("#"):
+                    continue
+                key, _, value = line.partition("=")
+                key, value = key.strip(), value.strip().strip('"').strip("'")
+                if key in colors and value.startswith("#"):
+                    colors[key] = value
+    except OSError:
+        pass
+    return colors
+
+
+def theme_stamp():
+    try:
+        return os.stat(THEME_SHELL_TOML).st_mtime
+    except OSError:
+        return 0
+
+
+def glyph_font(family, glyph):
+    """A font *file* that actually carries the glyph.
+
+    fc-match answers with the fontconfig default rather than the family asked
+    for when that family is not installed, and that default may carry no icon
+    glyphs at all — so the charset is the thing to match on, not the name.
+    """
+    codepoint = format(ord(glyph[0]), "x") if glyph else "f05a3"
+    queries = []
+    if family:
+        queries.append(":charset=%s:family=%s" % (codepoint, family))
+    queries.append(":charset=%s" % codepoint)
+    for query in queries:
+        try:
+            found = subprocess.run(["fc-list", query, "file"],
+                                   capture_output=True, text=True, timeout=5)
+        except (OSError, subprocess.SubprocessError):
+            continue
+        for line in (found.stdout or "").splitlines():
+            path = line.split(":", 1)[0].strip()
+            # Prefer an upright face; an italic skews an icon glyph.
+            if path and os.path.exists(path) and "Italic" not in path:
+                return path
+    return ""
+
+
+class Icon:
+    """The tray pixmap: the same Nerd Font glyph the bar widget draws, in the
+    bar's own foreground, with the unread count on a badge.
+
+    The count is painted into the image because the tray renders whatever
+    pixmap an item hands it: Status=NeedsAttention is ignored, and only a
+    `-symbolic` icon *name* gets recolored, which a pixmap cannot carry.
+    """
+
+    def __init__(self, glyph, font, size, colors, style="dot", scale=0.9,
+                 badge_scale=0.6, offset=4):
+        self.glyph = glyph
+        self.font = font
+        self.size = size
+        self.colors = colors
+        self.style = style
+        self.scale = scale
+        self.badge_scale = badge_scale
+        self.offset = offset
+        self.cache = {}
+
+    def restyle(self, colors):
+        self.colors = colors
+        self.cache = {}
+
+    def label(self, count):
+        return "99+" if count > 99 else str(count)
+
+    def render(self, count):
+        if count in self.cache:
+            return self.cache[count]
+        data = self._compose(count)
+        if data is not None:
+            self.cache[count] = data
+        return data
+
+    def _compose(self, count):
+        if not self.font:
+            return None
+
+        size = self.size
+        geometry = "%dx%d" % (size, size)
+        # Trim to the ink and then fit, so the icon lands at the same size
+        # whatever the font's own metrics leave around the glyph. The default
+        # scale overshoots the neighbours' ink box on purpose: an outline
+        # glyph with a tail reads smaller than a solid mark of equal bounds,
+        # which is what makes it look off next to Slack at parity.
+        inner = int(size * self.scale)
+        command = [
+            "magick", "-background", "none", "-fill", self.colors["text"],
+            "-font", self.font, "-pointsize", str(size * 2),
+            "label:" + self.glyph, "-trim", "+repage",
+            "-resize", "%dx%d" % (inner, inner),
+        ]
+
+        # Nudge the glyph left so the badge owns its corner instead of sitting
+        # on top of the mark. Splicing empty space onto the far side and
+        # re-centring moves it by half of what is spliced, which is the only
+        # lever there is: the canvas is what the tray scales, so the dot cannot
+        # travel any further out on its own.
+        #
+        # Sideways only. The same nudge downwards buys the badge a little more
+        # room and costs the one thing the eye actually checks in a row of bar
+        # icons — everything here sits on a shared line, and a glyph a pixel
+        # below it reads as broken long before an off-centre badge does.
+        #
+        # Clamped to the margin the glyph leaves, or the nudge crops it.
+        room = max(0, (size - inner) // 2)
+        nudge = min(self.offset, room)
+        if nudge > 0:
+            command += ["-gravity", "east", "-splice", "%dx0" % (2 * nudge)]
+        command += ["-gravity", "center", "-extent", geometry]
+
+        if count > 0 and self.style != "none":
+            # A dot carries nothing beyond "there is something", so it is
+            # sized to be caught out of the corner of an eye at the ~20px a
+            # tray icon is really drawn at, rather than to stay clear of the
+            # glyph under it. A number in there would be two grey pixels,
+            # which is why the dot is the default.
+            dot = self.style == "dot"
+            badge = max(10, int(size * (self.badge_scale if dot else 0.52)))
+            radius = badge // 2
+            # A pixel of slack inside the badge's own canvas: drawn flush to
+            # the edge, the antialiased rim is shaved off and the circle
+            # renders as a cut-off wedge.
+            rim = max(1, size // 64)
+            command += [
+                "(", "-size", "%dx%d" % (badge, badge), "xc:none",
+                "-fill", self.colors["active"],
+                "-draw", "circle %d,%d %d,%d" % (radius, radius, radius, rim),
+            ]
+            if not dot:
+                label = self.label(count)
+                point = int(badge * (0.68 if len(label) == 1 else
+                                     0.52 if len(label) == 2 else 0.40))
+                command += [
+                    "-fill", "white", "-font", self.font,
+                    "-pointsize", str(point), "-gravity", "center",
+                    "-annotate", "+0+0", label,
+                ]
+            # Bottom-right, which is where Slack puts its own dot: the tray
+            # reads as one row of icons, so the badges belong on one corner.
+            command += [")", "-gravity", "southeast", "-composite"]
+
+        command += ["-depth", "8", "rgba:-"]
+        try:
+            result = subprocess.run(command, capture_output=True, timeout=10)
+        except (OSError, subprocess.SubprocessError):
+            return None
+        if result.returncode != 0:
+            return None
+
+        raw = result.stdout
+        if len(raw) != size * size * 4:
+            return None
+        return size, size, rgba_to_argb(raw)
+
+
+def rgba_to_argb(raw):
+    """The spec wants ARGB32 in network byte order; ImageMagick gives RGBA."""
+    out = bytearray(len(raw))
+    out[0::4] = raw[3::4]
+    out[1::4] = raw[0::4]
+    out[2::4] = raw[1::4]
+    out[3::4] = raw[2::4]
+    return bytes(out)
+
+
+# ---------------------------------------------------------------- tray item
+
+class TrayItem(dbus.service.Object):
+    def __init__(self, bus_name, app):
+        super().__init__(bus_name, SNI_PATH)
+        self.app = app
+
+    # -- properties ---------------------------------------------------------
+    def properties(self):
+        count = self.app.unread
+        pixmap = self.app.pixmap()
+        description = self.app.description()
+        return {
+            "Category": dbus.String("Communications"),
+            "Id": dbus.String("whatsapp"),
+            "Title": dbus.String("WhatsApp"),
+            "Status": dbus.String("NeedsAttention" if count else "Active"),
+            "WindowId": dbus.Int32(0),
+            "IconName": dbus.String("" if pixmap else self.app.icon_name),
+            "IconPixmap": pixmap,
+            "OverlayIconName": dbus.String(""),
+            "AttentionIconName": dbus.String(""),
+            "AttentionMovieName": dbus.String(""),
+            "ToolTip": dbus.Struct(
+                (dbus.String(""), dbus.Array([], signature="(iiay)"),
+                 dbus.String("WhatsApp"), dbus.String(description)),
+                signature="sa(iiay)ss"),
+            "ItemIsMenu": dbus.Boolean(False),
+            "Menu": dbus.ObjectPath(MENU_PATH),
+        }
+
+    @dbus.service.method(dbus.PROPERTIES_IFACE, in_signature="ss",
+                         out_signature="v")
+    def Get(self, interface, prop):
+        values = self.properties()
+        if prop not in values:
+            raise dbus.exceptions.DBusException(
+                "org.freedesktop.DBus.Error.UnknownProperty", prop)
+        return values[prop]
+
+    @dbus.service.method(dbus.PROPERTIES_IFACE, in_signature="s",
+                         out_signature="a{sv}")
+    def GetAll(self, interface):
+        return self.properties()
+
+    @dbus.service.method(dbus.PROPERTIES_IFACE, in_signature="ssv")
+    def Set(self, interface, prop, value):
+        pass
+
+    # -- interactions -------------------------------------------------------
+    @dbus.service.method(SNI_IFACE, in_signature="ii")
+    def Activate(self, x, y):
+        self.app.toggle()
+
+    @dbus.service.method(SNI_IFACE, in_signature="ii")
+    def SecondaryActivate(self, x, y):
+        self.app.open()
+
+    @dbus.service.method(SNI_IFACE, in_signature="ii")
+    def ContextMenu(self, x, y):
+        pass
+
+    @dbus.service.method(SNI_IFACE, in_signature="is")
+    def Scroll(self, delta, orientation):
+        pass
+
+    # -- change notifications ----------------------------------------------
+    @dbus.service.signal(SNI_IFACE)
+    def NewTitle(self):
+        pass
+
+    @dbus.service.signal(SNI_IFACE)
+    def NewIcon(self):
+        pass
+
+    @dbus.service.signal(SNI_IFACE)
+    def NewToolTip(self):
+        pass
+
+    @dbus.service.signal(SNI_IFACE, signature="s")
+    def NewStatus(self, status):
+        pass
+
+
+
+class TrayMenu(dbus.service.Object):
+    """The right-click menu, published as `com.canonical.dbusmenu`.
+
+    A StatusNotifierItem carries no actions of its own beyond a click and a
+    middle click: every tray icon that offers a "Quit" is answering this second
+    interface, which is the only reason it exists here.
+    """
+
+    OPEN, HIDE, SEPARATOR, QUIT = 1, 2, 3, 4
+
+    def __init__(self, bus_name, app):
+        super().__init__(bus_name, MENU_PATH)
+        self.app = app
+        self.revision = 1
+
+    # -- contents -----------------------------------------------------------
+    def entries(self):
+        running = self.app.window.running
+        parked = self.app.window.parked
+        return [
+            (self.OPEN, "Open WhatsApp", True, False),
+            (self.HIDE, "Hide WhatsApp", running and not parked, False),
+            (self.SEPARATOR, "", False, True),
+            (self.QUIT, "Quit WhatsApp", running, False),
+        ]
+
+    def entry(self, ident, label, enabled, separator):
+        props = {"visible": dbus.Boolean(True)}
+        if separator:
+            props["type"] = dbus.String("separator")
+        else:
+            props["label"] = dbus.String(label)
+            props["enabled"] = dbus.Boolean(enabled)
+        return dbus.Struct(
+            (dbus.Int32(ident), dbus.Dictionary(props, signature="sv"),
+             dbus.Array([], signature="v")),
+            signature="ia{sv}av")
+
+    def invalidate(self):
+        """Tell the host the labels it cached are stale."""
+        self.revision += 1
+        self.LayoutUpdated(dbus.UInt32(self.revision), dbus.Int32(0))
+
+    # -- dbusmenu -----------------------------------------------------------
+    @dbus.service.method(MENU_IFACE, in_signature="iias",
+                         out_signature="u(ia{sv}av)")
+    def GetLayout(self, parentId, recursionDepth, propertyNames):
+        children = dbus.Array([self.entry(*e) for e in self.entries()],
+                              signature="v")
+        root = dbus.Struct(
+            (dbus.Int32(0),
+             dbus.Dictionary({"children-display": dbus.String("submenu")},
+                             signature="sv"),
+             children),
+            signature="ia{sv}av")
+        return dbus.UInt32(self.revision), root
+
+    @dbus.service.method(MENU_IFACE, in_signature="aias",
+                         out_signature="a(ia{sv})")
+    def GetGroupProperties(self, ids, propertyNames):
+        out = []
+        for values in self.entries():
+            if ids and values[0] not in ids:
+                continue
+            built = self.entry(*values)
+            out.append(dbus.Struct((built[0], built[1]), signature="ia{sv}"))
+        return dbus.Array(out, signature="(ia{sv})")
+
+    @dbus.service.method(MENU_IFACE, in_signature="is", out_signature="v")
+    def GetProperty(self, ident, name):
+        for values in self.entries():
+            if values[0] != ident:
+                continue
+            props = self.entry(*values)[1]
+            if name in props:
+                return props[name]
+        return dbus.String("")
+
+    @dbus.service.method(MENU_IFACE, in_signature="isvu", out_signature="")
+    def Event(self, ident, event_id, data, timestamp):
+        if str(event_id) != "clicked":
+            return
+        if ident == self.OPEN:
+            self.app.open()
+        elif ident == self.HIDE:
+            self.app.hide()
+        elif ident == self.QUIT:
+            self.app.quit_window()
+
+    @dbus.service.method(MENU_IFACE, in_signature="a(isvu)", out_signature="ai")
+    def EventGroup(self, events):
+        for ident, event_id, data, timestamp in events:
+            self.Event(ident, event_id, data, timestamp)
+        return dbus.Array([], signature="i")
+
+    # Answering "yes, it changed" on every open is what keeps "Hide" and
+    # "Quit" greyed out in step with a window that comes and goes.
+    @dbus.service.method(MENU_IFACE, in_signature="i", out_signature="b")
+    def AboutToShow(self, ident):
+        self.app.refresh()
+        return dbus.Boolean(True)
+
+    @dbus.service.method(MENU_IFACE, in_signature="ai", out_signature="aiai")
+    def AboutToShowGroup(self, ids):
+        self.app.refresh()
+        return dbus.Array([], signature="i"), dbus.Array([], signature="i")
+
+    # -- properties ---------------------------------------------------------
+    def properties(self):
+        return {
+            "Version": dbus.UInt32(3),
+            "Status": dbus.String("normal"),
+            "TextDirection": dbus.String("ltr"),
+            "IconThemePath": dbus.Array([], signature="s"),
+        }
+
+    @dbus.service.method(dbus.PROPERTIES_IFACE, in_signature="ss",
+                         out_signature="v")
+    def Get(self, interface, prop):
+        values = self.properties()
+        if prop not in values:
+            raise dbus.exceptions.DBusException(
+                "org.freedesktop.DBus.Error.UnknownProperty", prop)
+        return values[prop]
+
+    @dbus.service.method(dbus.PROPERTIES_IFACE, in_signature="s",
+                         out_signature="a{sv}")
+    def GetAll(self, interface):
+        return self.properties()
+
+    # -- signals ------------------------------------------------------------
+    @dbus.service.signal(MENU_IFACE, signature="a(ia{sv})a(ias)")
+    def ItemsPropertiesUpdated(self, updated, removed):
+        pass
+
+    @dbus.service.signal(MENU_IFACE, signature="ui")
+    def LayoutUpdated(self, revision, parent):
+        pass
+
+    @dbus.service.signal(MENU_IFACE, signature="iu")
+    def ItemActivationRequested(self, ident, timestamp):
+        pass
+
+
+# ---------------------------------------------------------------------- app
+
+class App:
+    def __init__(self, options):
+        self.options = options
+        self.window = Window(options.window_class, options.special)
+        self.colors = self.palette()
+        self.theme_stamp = theme_stamp()
+        self.icon = Icon(options.glyph,
+                         options.font or glyph_font(options.font_family,
+                                                    options.glyph),
+                         options.icon_size, self.colors, options.badge,
+                         options.glyph_scale, options.badge_scale,
+                         options.glyph_offset)
+        self.icon_name = "whatsapp"
+        self.unread = 0
+        self.item = None
+        self.menu = None
+        self.pending = None
+        self.was_running = False
+
+    # -- state --------------------------------------------------------------
+    def palette(self):
+        """The theme's bar colors, with the command line having the last word."""
+        colors = read_theme()
+        if self.options.color:
+            colors["text"] = self.options.color
+        if self.options.badge_color:
+            colors["active"] = self.options.badge_color
+        return colors
+
+    def description(self):
+        if not self.window.running:
+            return "not running"
+        if self.unread == 1:
+            return "1 unread chat"
+        if self.unread > 1:
+            return "%d unread chats" % self.unread
+        return "no unread chats"
+
+    def pixmap(self):
+        rendered = self.icon.render(self.unread if self.window.running else 0)
+        if rendered is None:
+            return dbus.Array([], signature="(iiay)")
+        width, height, data = rendered
+        return dbus.Array(
+            [dbus.Struct((dbus.Int32(width), dbus.Int32(height),
+                          dbus.ByteArray(data)), signature="iiay")],
+            signature="(iiay)")
+
+    def refresh(self):
+        self.pending = None
+        self.window.refresh()
+
+        running = self.window.running
+        if running != self.was_running:
+            self.was_running = running
+            if self.menu:
+                self.menu.invalidate()
+
+        count = unread_from_title(self.window.title) if running else 0
+        if count == self.unread:
+            return False
+        self.unread = count
+        if self.item:
+            self.item.NewIcon()
+            self.item.NewToolTip()
+            self.item.NewStatus("NeedsAttention" if count else "Active")
+        return False
+
+    def recheck_theme(self):
+        """Themes are switched from outside and the icon is a bitmap, so it
+        has to be repainted when the bar changes color under it."""
+        stamp = theme_stamp()
+        if stamp == self.theme_stamp:
+            return True
+        self.theme_stamp = stamp
+        colors = self.palette()
+        if colors == self.colors:
+            return True
+        self.colors = colors
+        self.icon.restyle(colors)
+        if self.item:
+            self.item.NewIcon()
+        return True
+
+    def schedule_refresh(self):
+        if self.pending is not None:
+            return
+        self.pending = GLib.timeout_add(150, self.refresh)
+
+    # -- actions ------------------------------------------------------------
+    def launch(self):
+        command = self.options.launch or ""
+        argv = (["bash", "-lc", command] if command
+                else ["omarchy-launch-webapp", self.options.url])
+        try:
+            # The browser is noisy on stderr and would otherwise write its
+            # log into this daemon's, which is where its own errors go.
+            with open(os.devnull, "wb") as quiet:
+                subprocess.Popen(argv, stdout=quiet, stderr=quiet,
+                                 start_new_session=True)
+        except OSError:
+            return
+        if self.options.start_hidden:
+            GLib.timeout_add_seconds(self.options.hide_after, self.park_once)
+
+    def park_once(self, attempts=5):
+        """Put the window away once it exists.
+
+        A cold WhatsApp can take longer to map than the delay allowed for it
+        to load, so a miss waits rather than leaving the window on screen.
+        """
+        self.window.refresh()
+        if self.window.running:
+            if not self.window.parked:
+                self.park()
+            return False
+        if attempts > 0:
+            GLib.timeout_add_seconds(2, self.park_once, attempts - 1)
+        return False
+
+    def focus(self):
+        """Put the window in front, wherever it lives.
+
+        Focusing a window that sits on another workspace lands the *workspace*
+        and leaves the focus on whatever was last used there — the window
+        itself is only reached by asking a second time, once its workspace is
+        the current one. That is two-step behaviour, not a race, so the repeat
+        is the fix rather than a longer wait.
+        """
+        address = self.window.address
+        if not address:
+            return
+
+        def once():
+            dispatch('hl.dsp.focus({ window = "address:%s" })' % address,
+                     ["focuswindow", "address:" + address])
+            return False
+
+        once()
+        GLib.timeout_add(120, once)
+
+    def park(self):
+        address = self.window.address
+        if not address:
+            return
+        workspace = "special:" + self.options.special
+        dispatch(
+            'hl.dsp.window.move({ window = "address:%s", workspace = "%s", '
+            'silent = true })' % (address, workspace),
+            ["movetoworkspacesilent", "%s,address:%s" % (workspace, address)])
+
+    def show(self):
+        """Bring the window back to the workspace it belongs to, and go there.
+
+        Moving it out of the special workspace rather than pulling that
+        workspace up means WhatsApp comes back as an ordinary window on its own
+        screen, instead of an overlay on top of whatever is in front.
+        """
+        address = self.window.address
+        if not address:
+            return
+        # A move that is not silent takes the compositor along with the
+        # window and leaves it focused, which is the whole trip in one call.
+        target = self.window.home or active_workspace()
+        if target:
+            dispatch(
+                'hl.dsp.window.move({ window = "address:%s", workspace = "%s" })'
+                % (address, target),
+                ["movetoworkspace", "%s,address:%s" % (target, address)])
+        self.focus()
+
+    def toggle(self):
+        self.window.refresh()
+        if not self.window.running:
+            self.launch()
+        elif self.window.parked:
+            self.show()
+        elif self.window.focused and self.options.hide:
+            self.park()
+        else:
+            self.focus()
+
+    def open(self):
+        """Show it without the second half of the toggle: never hides."""
+        self.window.refresh()
+        if not self.window.running:
+            self.launch()
+        elif self.window.parked:
+            self.show()
+        else:
+            self.focus()
+
+    def hide(self):
+        self.window.refresh()
+        if self.window.running and not self.window.parked:
+            self.park()
+
+    def quit_window(self):
+        """Close the window, which ends the session — the count goes with it."""
+        self.window.refresh()
+        address = self.window.address
+        if not address:
+            return
+        dispatch('hl.dsp.window.close({ window = "address:%s" })' % address,
+                 ["closewindow", "address:" + address])
+
+
+# ------------------------------------------------------------- event source
+
+def follow_events(app):
+    """Hyprland's event socket, read on a thread and handed back to the main
+    loop. Falls back to polling if the socket is not there."""
+    signature = os.environ.get("HYPRLAND_INSTANCE_SIGNATURE", "")
+    runtime = os.environ.get("XDG_RUNTIME_DIR", "/run/user/%d" % os.getuid())
+    path = os.path.join(runtime, "hypr", signature, ".socket2.sock")
+    if not signature or not os.path.exists(path):
+        GLib.timeout_add_seconds(3, lambda: (app.schedule_refresh(), True)[1])
+        return
+
+    # The socket dies with the compositor, and there is nothing to come back
+    # to when it does, so the reader ends with it rather than reconnecting.
+    def reader():
+        try:
+            stream = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            stream.connect(path)
+            buffered = stream.makefile("r", encoding="utf-8", errors="replace")
+            for line in buffered:
+                if line.split(">>", 1)[0] in WATCHED_EVENTS:
+                    GLib.idle_add(app.schedule_refresh)
+        except OSError:
+            pass
+
+    threading.Thread(target=reader, daemon=True).start()
+
+
+# ------------------------------------------------------------ registration
+
+def register(bus, name):
+    try:
+        watcher = bus.get_object(WATCHER_NAME, WATCHER_PATH)
+        watcher.RegisterStatusNotifierItem(name, dbus_interface=WATCHER_NAME)
+        return True
+    except dbus.DBusException:
+        return False
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--window-class", default="whatsapp",
+                        help="case-insensitive substring of the window class")
+    parser.add_argument("--url", default="https://web.whatsapp.com/")
+    parser.add_argument("--launch", default="",
+                        help="command to open WhatsApp, instead of the web app")
+    parser.add_argument("--special", default="whatsapp",
+                        help="name of the special workspace used to park it")
+    parser.add_argument("--no-hide", dest="hide", action="store_false",
+                        help="clicking a focused window does not park it")
+    parser.add_argument("--start-hidden", action="store_true",
+                        help="park the window shortly after opening it")
+    parser.add_argument("--autostart", action="store_true",
+                        help="open WhatsApp on launch when it is not running")
+    parser.add_argument("--hide-after", type=int, default=8,
+                        help="seconds of loading before parking it")
+    parser.add_argument("--glyph", default="󰖣",
+                        help="the character drawn as the tray icon")
+    parser.add_argument("--font-family", default="JetBrainsMono Nerd Font",
+                        help="font family to take the glyph from")
+    parser.add_argument("--font", default="",
+                        help="path to a font file, overriding --font-family")
+    parser.add_argument("--badge", choices=("dot", "count", "none"),
+                        default="dot",
+                        help="a plain dot, the number of unread chats, "
+                             "or nothing at all")
+    parser.add_argument("--icon-size", type=int, default=64)
+    parser.add_argument("--glyph-scale", type=float, default=0.9,
+                        help="how much of the icon the glyph fills, 0-1")
+    parser.add_argument("--badge-scale", type=float, default=0.6,
+                        help="dot diameter as a fraction of the icon, 0-1")
+    parser.add_argument("--glyph-offset", type=int, default=4,
+                        help="pixels the glyph is nudged left to clear the "
+                             "badge corner, clamped to the room it has; "
+                             "0 keeps it centered")
+    parser.add_argument("--color", default="",
+                        help="glyph color; empty follows the theme's bar text")
+    parser.add_argument("--badge-color", default="",
+                        help="badge color; empty follows the theme's bar active")
+    options = parser.parse_args()
+
+    DBusGMainLoop(set_as_default=True)
+    bus = dbus.SessionBus()
+
+    app = App(options)
+    name = "org.kde.StatusNotifierItem-%d-1" % os.getpid()
+    bus_name = dbus.service.BusName(name, bus)
+    app.item = TrayItem(bus_name, app)
+    app.menu = TrayMenu(bus_name, app)
+
+    app.refresh()
+    if not register(bus, name):
+        print("whatsapp-tray: no StatusNotifierWatcher yet, waiting", file=sys.stderr)
+
+    # The watcher lives in the shell: it goes away on every `omarchy restart
+    # shell`, and the item has to introduce itself again when it comes back.
+    def owner_changed(service, old_owner, new_owner):
+        if service == WATCHER_NAME and new_owner:
+            GLib.timeout_add(500, lambda: (register(bus, name), False)[1])
+
+    bus.add_signal_receiver(owner_changed,
+                            signal_name="NameOwnerChanged",
+                            dbus_interface="org.freedesktop.DBus",
+                            arg0=WATCHER_NAME)
+
+    if options.autostart and not app.window.running:
+        # Late enough that the compositor has finished bringing the session
+        # up, so the window does not fight the rest of the login for the
+        # screen before it gets parked.
+        GLib.timeout_add_seconds(5, lambda: (app.launch(), False)[1])
+
+    GLib.timeout_add_seconds(5, app.recheck_theme)
+    follow_events(app)
+    GLib.MainLoop().run()
+
+
+if __name__ == "__main__":
+    main()

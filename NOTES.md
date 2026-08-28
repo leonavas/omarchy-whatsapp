@@ -40,6 +40,21 @@ The right-click menu is a second interface, `com.canonical.dbusmenu`. An SNI
 carries no actions of its own beyond a click, so every tray icon that offers a
 "Quit" is answering that interface.
 
+"Quit" takes the icon out of the tray as well as closing the window — an item
+left behind after quitting is a launcher for an app that was just closed, and
+its count can only be zero. It does that by going `Status = "Passive"`, which
+hosts answer by dropping the item (omarchy's own tray skips passive items in
+`Tray.qml`), **not** by ending the process: the daemon is the only thing
+watching for WhatsApp to come back, and an exited daemon watches nothing. So
+the icon returns by itself the next time a WhatsApp window appears, however it
+was started, which is the case an exiting daemon got wrong.
+
+Ending the process would also be a one-way door in practice — nothing restarts
+it before the next login — so the state lives in the daemon instead: `dismissed`
+is set by the menu and cleared when the window count goes from none to one. A
+close that does not take is the one way that state could strand a running
+WhatsApp with no icon, so it is re-checked five seconds later.
+
 A checkable entry in that menu — "Launch on Login" — is an ordinary item that
 declares `toggle-type = "checkmark"` and a `toggle-state`; there is no checkbox
 *type*, and an item carrying neither property is drawn with no room for a mark.

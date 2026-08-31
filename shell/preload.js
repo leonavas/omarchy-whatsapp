@@ -27,9 +27,35 @@ const SEL = {
 };
 
 const MAX_CHATS = 20;
+const MAX_MESSAGES = 10;
 
 let appliedTitle = null;
 let lastPayload = "";
+
+// Messages accumulated from the notifications WhatsApp fires (the sidebar
+// only carries a chat's last line). Keyed by the notification title, which
+// is the chat name; forgotten the moment the chat's unread badge clears.
+const messagesByChat = new Map();
+
+document.addEventListener("wa-note", () => {
+  const stash = document.getElementById("__wa-note-stash");
+  if (!stash) return;
+  let note;
+  try {
+    note = JSON.parse(stash.getAttribute("data-note") || "");
+  } catch (err) {
+    return;
+  }
+  if (!note || !note.title || !note.body) return;
+  const list = messagesByChat.get(note.title) || [];
+  // WhatsApp re-issues a chat's notification with a summary body ("2 novas
+  // mensagens") or verbatim on reconnect; identical tails are the same event.
+  if (list.length > 0 && list[list.length - 1] === note.body) return;
+  list.push(note.body);
+  while (list.length > MAX_MESSAGES) list.shift();
+  messagesByChat.set(note.title, list);
+  schedule();
+});
 
 function pane() {
   return document.querySelector(SEL.pane);
@@ -108,8 +134,22 @@ function collect() {
     unread += 1;
     if (chats.length >= MAX_CHATS) continue;
     const info = rowInfo(row);
-    if (info) chats.push({ ...info, count: badgeCount(badge) });
+    if (info) {
+      chats.push({
+        ...info,
+        count: badgeCount(badge),
+        messages: messagesByChat.get(info.name) || [],
+      });
+    }
   }
+
+  // A chat read is a chat forgotten: keeping its captured messages would
+  // resurrect them the next time a single message arrives.
+  const unreadNames = new Set(chats.map(c => c.name));
+  for (const name of messagesByChat.keys()) {
+    if (!unreadNames.has(name)) messagesByChat.delete(name);
+  }
+
   return { unread, chats };
 }
 

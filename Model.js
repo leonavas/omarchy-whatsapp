@@ -115,11 +115,18 @@ function stateChats(state, max) {
     var name = String(chat.name || "").trim()
     if (name.length === 0) continue
     var count = Number(chat.count)
+    var messagesIn = Array.isArray(chat.messages) ? chat.messages : []
+    var messages = []
+    for (var m = 0; m < messagesIn.length && messages.length < 10; m++) {
+      var text = String(messagesIn[m] || "").trim()
+      if (text.length > 0) messages.push(text)
+    }
     rows.push({
       name: name,
       preview: String(chat.preview || "").trim(),
       time: String(chat.time || "").trim(),
       count: isFinite(count) && count > 0 ? Math.floor(count) : 1,
+      messages: messages,
     })
   }
   return rows

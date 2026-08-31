@@ -158,7 +158,24 @@ function createWindow() {
       if (window.__waNotifWrapped) return; window.__waNotifWrapped = true;
       var Orig = window.Notification;
       if (!Orig) { console.log("[wa-notif] Notification API missing"); return; }
+      // The sidebar only ever shows a chat's last message; the notifications
+      // WhatsApp fires carry every message one by one (title = contact,
+      // body = text), so each attempt is handed to the preload for the hover
+      // preview. Worlds are isolated, but the DOM is shared: the note rides
+      // an attribute on a stash node and a plain event says "read it".
+      var stash = document.createElement("div");
+      stash.id = "__wa-note-stash";
+      stash.style.display = "none";
+      document.documentElement.appendChild(stash);
       function Wrapped(title, opts) {
+        try {
+          stash.setAttribute("data-note", JSON.stringify({
+            title: String(title || ""),
+            body: String((opts && opts.body) || ""),
+            ts: Date.now(),
+          }));
+          document.dispatchEvent(new Event("wa-note"));
+        } catch (err) {}
         console.log("[wa-notif] attempt, permission=" + Orig.permission);
         return new Orig(title, opts);
       }

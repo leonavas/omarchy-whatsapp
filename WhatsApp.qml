@@ -20,7 +20,7 @@ BarWidget {
   readonly property string glyph: String(setting("glyph", "󰖣"))
   readonly property int glyphSize: Math.max(0, Number(setting("glyphSize", 0)))
   readonly property real glyphOffsetY: Number(setting("glyphOffsetY", -0.5))
-  readonly property string badgeStyle: String(setting("badge", "Count"))
+  readonly property string badgeStyle: String(setting("badge", "Dot"))
   readonly property string badgeOverride: String(setting("badgeColor", ""))
   readonly property bool tintWhenUnread: setting("tintWhenUnread", true) !== false
   readonly property string hideMode: String(setting("hideMode", "Special workspace"))
@@ -444,9 +444,10 @@ BarWidget {
 
     visible: root.unread > 0 && root.badgeStyle !== "None"
     z: 2
-    // Same rule the tray daemon paints by: a dot at roughly three fifths of
-    // the icon, big enough to catch the eye at bar size.
-    height: dotOnly ? Math.round(Style.bar.iconCanvas * 0.6)
+    // Slack's dot, measured off its own tray icon: a little under half the
+    // icon, sitting on the bottom-right corner — enough to say "there is
+    // something", which is all a dot is for.
+    height: dotOnly ? Math.round(Style.bar.iconCanvas * 0.45)
                     : Math.round(count.implicitHeight + Style.space(3))
     width: dotOnly ? height : Math.max(height, Math.round(count.implicitWidth + Style.space(6)))
     radius: height / 2
@@ -489,7 +490,7 @@ BarWidget {
     owner: root
     open: root.popupOpen
     triggerMode: "hover"
-    contentWidth: popup.fittedContentWidth(Style.space(340))
+    contentWidth: popup.fittedContentWidth(Style.space(420))
     contentHeight: popup.fittedContentHeight(previewColumn.implicitHeight)
 
     readonly property color fg: root.bar ? root.bar.foreground : Color.foreground
@@ -518,52 +519,43 @@ BarWidget {
           id: chatRow
           required property var modelData
 
+          // Everything captured for this chat, oldest first; the sidebar's
+          // last-message line stands in until a notification is caught.
+          readonly property var messageList: modelData.messages.length > 0
+            ? modelData.messages
+            : (modelData.preview.length > 0 ? [modelData.preview] : [])
+
           width: previewColumn.width
-          height: chatInner.implicitHeight + Style.space(10)
+          height: chatInner.implicitHeight + Style.space(12)
           radius: Style.spacing.labelGap
           color: rowArea.containsMouse
             ? Qt.rgba(popup.fg.r, popup.fg.g, popup.fg.b, 0.08) : "transparent"
 
-          Row {
+          Column {
             id: chatInner
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
             anchors.leftMargin: Style.space(6)
             anchors.rightMargin: Style.space(6)
-            spacing: Style.space(8)
+            spacing: Style.space(3)
 
-            Column {
-              width: parent.width - meta.width - chatInner.spacing
-              spacing: Style.space(2)
-              anchors.verticalCenter: parent.verticalCenter
+            Item {
+              width: parent.width
+              height: nameText.implicitHeight
 
               Text {
+                id: nameText
                 text: chatRow.modelData.name
                 color: popup.fg
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.bodySmall
                 font.bold: true
                 elide: Text.ElideRight
-                width: parent.width
+                anchors.left: parent.left
+                anchors.right: timeText.left
+                anchors.rightMargin: Style.space(8)
               }
-
-              Text {
-                text: chatRow.modelData.preview
-                color: Qt.darker(popup.fg, 1.4)
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-                elide: Text.ElideRight
-                width: parent.width
-                visible: text !== ""
-              }
-            }
-
-            Column {
-              id: meta
-              width: Math.max(timeText.implicitWidth, pill.width)
-              spacing: Style.space(4)
-              anchors.verticalCenter: parent.verticalCenter
 
               Text {
                 id: timeText
@@ -572,26 +564,24 @@ BarWidget {
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.caption
                 anchors.right: parent.right
+                anchors.baseline: nameText.baseline
                 visible: text !== ""
               }
+            }
 
-              Rectangle {
-                id: pill
-                height: pillCount.implicitHeight + Style.space(3)
-                width: Math.max(height, pillCount.implicitWidth + Style.space(8))
-                radius: height / 2
-                color: root.badgeColor
-                anchors.right: parent.right
+            // Full text, wrapped, never elided: the point of the popup is
+            // reading the messages without opening the window.
+            Repeater {
+              model: chatRow.messageList
 
-                Text {
-                  id: pillCount
-                  anchors.centerIn: parent
-                  text: Model.badgeLabel(chatRow.modelData.count)
-                  color: root.badgeTextColor
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.caption
-                  font.bold: true
-                }
+              Text {
+                required property var modelData
+                text: String(modelData)
+                color: Qt.darker(popup.fg, 1.3)
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.bodySmall
+                wrapMode: Text.Wrap
+                width: chatInner.width
               }
             }
           }

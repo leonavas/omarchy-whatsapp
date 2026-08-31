@@ -143,6 +143,11 @@ window.addEventListener("DOMContentLoaded", () => {
   }
   setInterval(apply, 3000);
   apply();
+
+  // One line in the shell's log saying whether the page can notify at all —
+  // the first thing to look at when notifications go quiet.
+  const perm = typeof Notification !== "undefined" ? Notification.permission : "unavailable";
+  ipcRenderer.send("wa-debug", "notification-permission=" + perm);
 });
 
 // "Open the chat named X": find its row and click it the way a person would.

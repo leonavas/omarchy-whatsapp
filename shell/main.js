@@ -115,15 +115,24 @@ app.on("second-instance", (event, argv) => handleArgv(argv));
 
 app.whenReady().then(() => {
   // WhatsApp asks for notifications always and for the microphone when
-  // recording voice messages; everything else stays denied.
+  // recording voice messages; everything else stays denied. Both handlers
+  // matter: the request handler answers permission prompts, but the check
+  // handler is what Notification.permission reads — without it the page can
+  // see "denied" and never attempt a notification at all.
+  const GRANTED = ["notifications", "media", "clipboard-sanitized-write", "fullscreen"];
   session.defaultSession.setPermissionRequestHandler((wc, permission, callback) => {
-    callback(["notifications", "media", "clipboard-sanitized-write", "fullscreen"].includes(permission));
+    callback(GRANTED.includes(permission));
   });
+  session.defaultSession.setPermissionCheckHandler((wc, permission) => GRANTED.includes(permission));
 
   ipcMain.on("wa-state", (event, state) => {
     if (state && typeof state === "object") {
       writeState({ ...state, updatedAt: Date.now(), running: true });
     }
+  });
+
+  ipcMain.on("wa-debug", (event, line) => {
+    console.log("whatsapp-shell:", String(line));
   });
 
   createWindow();

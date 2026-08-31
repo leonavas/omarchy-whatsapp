@@ -26,7 +26,6 @@
     "allowMultiple": false,
     "defaultSection": "right",
     "defaults": {
-      "url": "https://web.whatsapp.com/",
       "launchCommand": "",
       "windowClass": "whatsapp",
       "iconStyle": "Glyph",
@@ -49,18 +48,11 @@
     },
     "schema": [
       {
-        "key": "url",
-        "type": "string",
-        "label": "Address to open",
-        "defaultValue": "https://web.whatsapp.com/",
-        "description": "Opened with omarchy-launch-webapp, i.e. as an app window of the default browser."
-      },
-      {
         "key": "launchCommand",
         "type": "string",
         "label": "Custom launch command",
         "defaultValue": "",
-        "description": "Left empty, the widget runs `omarchy-launch-webapp <url>`. Set it to run a native client instead, e.g. `whatsapp-for-linux`."
+        "description": "Left empty, the widget launches the bundled shell app (shell/whatsapp-shell), which is what feeds the hover preview. Set it to run something else, e.g. `omarchy-launch-webapp https://web.whatsapp.com/` or `whatsapp-for-linux`."
       },
       {
         "key": "windowClass",
@@ -172,7 +164,7 @@
         "type": "boolean",
         "label": "Open WhatsApp when the shell starts",
         "defaultValue": false,
-        "description": "With \"Park the window right after opening it\", WhatsApp comes up on login already out of the way, counting messages in the bar."
+        "description": "The icon's menu toggles this as \"Launch on Login\". With \"Park the window right after opening it\", WhatsApp comes up on login already out of the way, counting messages in the bar."
       },
       {
         "key": "dimWhenClosed",

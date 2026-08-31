@@ -14,7 +14,6 @@ BarWidget {
   moduleName: "leonavas.whatsapp"
 
   // ---------------------------------------------------------------- settings
-  readonly property string url: String(setting("url", "https://web.whatsapp.com/"))
   readonly property string launchCommand: String(setting("launchCommand", ""))
   readonly property string windowClass: String(setting("windowClass", "whatsapp"))
   readonly property string iconStyle: String(setting("iconStyle", "Glyph"))
@@ -144,9 +143,15 @@ BarWidget {
     return "address:" + value
   }
 
+  // The path of the bundled Electron shell, resolved from where this file
+  // lives so the plugin works from any checkout location.
+  function shellLauncher() {
+    return String(Qt.resolvedUrl("shell/whatsapp-shell")).replace(/^file:\/\//, "")
+  }
+
   function launch() {
     if (root.launchCommand.length > 0) Util.execDetached(root.launchCommand)
-    else Util.execArgv(["omarchy-launch-webapp", root.url])
+    else Util.execArgv([root.shellLauncher()])
     if (root.startHidden && root.hideMode === "Special workspace") {
       parkTimer.attempts = 0
       parkTimer.interval = Math.max(1, root.hideAfterLaunch) * 1000
@@ -220,10 +225,21 @@ BarWidget {
   // its single-instance lock turns a second launch into a message to the
   // running window — and bring the window up the way a plain click would.
   function openChat(name) {
-    var launcher = String(Qt.resolvedUrl("shell/whatsapp-shell")).replace(/^file:\/\//, "")
-    Util.execArgv([launcher, "--open-chat=" + String(name)])
+    Util.execArgv([root.shellLauncher(), "--open-chat=" + String(name)])
     root.open()
     root.popupOpen = false
+  }
+
+  // "Launch on Login" is the widget's autoStart setting wearing the tray
+  // menu's name: the bar comes up at login and autoStart opens WhatsApp.
+  // Persisted through the shell's own settings writer, so it survives the
+  // session and shows up in the plugin panel like any other setting.
+  function toggleAutoStart() {
+    var shell = root.bar ? root.bar.shell : null
+    if (!shell || typeof shell.updateEntryInline !== "function") return
+    var merged = JSON.parse(JSON.stringify(root.settings || {}))
+    merged.autoStart = !root.autoStart
+    shell.updateEntryInline(root.moduleName, merged)
   }
 
   Timer {
@@ -274,9 +290,18 @@ BarWidget {
   // the bar from flashing it; once open it stays while the pointer is on the
   // button or the card, so the rows can be reached and clicked.
   property bool popupOpen: false
-  function close() { root.popupOpen = false }
+  property bool menuOpen: false
+  function close() {
+    root.popupOpen = false
+    root.menuOpen = false
+  }
+
+  // One card at a time: the menu takes the slot, the preview yields it and
+  // stays away while the menu is up.
+  onMenuOpenChanged: if (menuOpen) root.popupOpen = false
 
   readonly property bool previewAvailable: root.hoverPreview && root.previewChats.length > 0
+    && !root.menuOpen
   readonly property bool previewHovered: button.tooltipHovered || popup.containsMouse
 
   onPreviewAvailableChanged: if (!previewAvailable) root.popupOpen = false
@@ -312,7 +337,7 @@ BarWidget {
   implicitHeight: root.visible ? button.implicitHeight : 0
 
   readonly property string tooltip: {
-    if (!root.running) return "WhatsApp — click to open"
+    if (!root.running) return "WhatsApp — click for the menu"
     if (root.unread > 0)
       return "WhatsApp — " + root.unread + (root.unread === 1 ? " unread chat" : " unread chats")
     return root.parked ? "WhatsApp — running, hidden" : "WhatsApp"
@@ -336,7 +361,9 @@ BarWidget {
       } else if (mouseButton === Qt.RightButton) {
         root.open()
       } else {
-        root.toggle()
+        // The left button opens the menu, the way the tray icon's right
+        // button did; show/hide lives inside it as the first entry.
+        root.menuOpen = !root.menuOpen
       }
     }
   }
@@ -570,6 +597,115 @@ BarWidget {
         color: Qt.darker(popup.fg, 1.6)
         font.family: root.fontFamily
         font.pixelSize: Style.font.caption
+      }
+    }
+  }
+
+  // The left-click menu: what the tray icon answered with its right button —
+  // show or hide, launch on login, quit — now that this widget is the icon.
+  // Click mode, so the focus grab dismisses it on a click anywhere else.
+  PopupCard {
+    id: menu
+    anchorItem: root
+    bar: root.bar
+    owner: root
+    open: root.menuOpen
+    contentWidth: menu.fittedContentWidth(Style.space(190))
+    contentHeight: menu.fittedContentHeight(menuColumn.implicitHeight)
+
+    readonly property color fg: root.bar ? root.bar.foreground : Color.foreground
+
+    component MenuEntry: Rectangle {
+      id: entry
+
+      property string label: ""
+      property bool showCheck: false
+      property bool checked: false
+
+      signal activated()
+
+      width: menuColumn.width
+      height: entryText.implicitHeight + Style.space(12)
+      radius: Style.spacing.labelGap
+      color: entryArea.containsMouse && entry.enabled
+        ? Qt.rgba(menu.fg.r, menu.fg.g, menu.fg.b, 0.08) : "transparent"
+      opacity: entry.enabled ? 1 : 0.4
+
+      Text {
+        id: entryText
+        anchors.left: parent.left
+        anchors.leftMargin: Style.space(8)
+        anchors.verticalCenter: parent.verticalCenter
+        text: entry.label
+        color: menu.fg
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.bodySmall
+      }
+
+      Text {
+        visible: entry.showCheck
+        anchors.right: parent.right
+        anchors.rightMargin: Style.space(8)
+        anchors.verticalCenter: parent.verticalCenter
+        text: entry.checked ? "✓" : ""
+        color: menu.fg
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.bodySmall
+        font.bold: true
+      }
+
+      MouseArea {
+        id: entryArea
+        anchors.fill: parent
+        hoverEnabled: true
+        cursorShape: entry.enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+        onClicked: entry.activated()
+      }
+    }
+
+    Column {
+      id: menuColumn
+      anchors.fill: parent
+      spacing: Style.space(2)
+
+      MenuEntry {
+        label: !root.running ? "Open WhatsApp"
+          : root.parked ? "Show WhatsApp"
+          : (root.focused && root.hideMode === "Special workspace") ? "Hide WhatsApp"
+          : "Focus WhatsApp"
+        onActivated: {
+          root.close()
+          root.toggle()
+        }
+      }
+
+      PanelSeparator {
+        foreground: menu.fg
+      }
+
+      MenuEntry {
+        label: "Launch on Login"
+        showCheck: true
+        checked: root.autoStart
+        // Closed before the write: saving shell.json can rebuild the bar's
+        // widgets, and a menu owned by a destroyed widget dies mid-click.
+        onActivated: {
+          root.close()
+          root.toggleAutoStart()
+        }
+      }
+
+      PanelSeparator {
+        foreground: menu.fg
+      }
+
+      MenuEntry {
+        label: "Quit WhatsApp"
+        enabled: root.running
+        onActivated: {
+          root.close()
+          root.closeWindow()
+        }
       }
     }
   }

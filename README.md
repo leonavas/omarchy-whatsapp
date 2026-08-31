@@ -66,9 +66,10 @@ window can live parked out of sight.
 
 | Action | Tray icon | Bar widget |
 |---|---|---|
-| Left click | Open WhatsApp, bring it back, or put it away | same |
+| Left click | Open WhatsApp, bring it back, or put it away | Menu: Open or Hide / Launch on Login / Quit WhatsApp |
 | Middle click | Open or focus it, never hides it | Close WhatsApp |
 | Right click | Menu: Open / Hide / Launch on Login / Quit WhatsApp | Open or focus it, never hides it |
+| Hover | One-line tooltip | Preview of the unread chats (needs the shell app) |
 
 Hiding does not close WhatsApp: the window moves to the `special:whatsapp`
 workspace, where it keeps running and keeps counting. Bringing it back returns
@@ -128,15 +129,11 @@ which shows them in a popup when you hover the icon. Clicking a row jumps
 straight to that conversation.
 
 Nothing to build or install beyond Electron itself (`pacman -S electron`,
-already present on a box with another Electron app). Point the widget at it:
-
-```json
-{ "id": "leonavas.whatsapp", "launchCommand": "~/.config/omarchy/plugins/leonavas.whatsapp/shell/whatsapp-shell" }
-```
-
-or the tray daemon: `--launch .../shell/whatsapp-shell`. First launch shows the
-QR pairing screen — the shell keeps its own session, separate from the
-browser's, under `~/.local/state/whatsapp-shell`.
+already present on a box with another Electron app). The bar widget launches
+it by default — `launchCommand` only exists to run something else — and the
+tray daemon reaches it with `--launch .../shell/whatsapp-shell`. First launch
+shows the QR pairing screen — the shell keeps its own session, separate from
+the browser's, under `~/.local/state/whatsapp-shell`.
 
 The hover preview renders on the **bar widget**, not on the tray icon: an SNI
 tray item never hears about the pointer, so its hover behaviour belongs to the
@@ -169,8 +166,7 @@ Through the shell's plugin panel, or directly in `~/.config/omarchy/shell.json`:
 
 | Setting | Default | What it does |
 |---|---|---|
-| `url` | `https://web.whatsapp.com/` | Opened with `omarchy-launch-webapp` |
-| `launchCommand` | — | Overrides the launch entirely, e.g. `whatsapp-for-linux` |
+| `launchCommand` | — | Empty launches the bundled shell app; set it to run e.g. `whatsapp-for-linux` or `omarchy-launch-webapp https://web.whatsapp.com/` |
 | `windowClass` | `whatsapp` | Case-insensitive substring of the window class to watch |
 | `iconStyle` | `Glyph` | `Glyph` (Nerd Font, bar colored) or `App icon` (the green icon) |
 | `glyph` | `󰖣` | The character drawn by the `Glyph` style |
@@ -183,7 +179,7 @@ Through the shell's plugin panel, or directly in `~/.config/omarchy/shell.json`:
 | `specialWorkspace` | `whatsapp` | Used as `special:<name>` |
 | `startHidden` | `true` | Parks the window shortly after opening it |
 | `hideAfterLaunch` | `8` | Seconds of loading before it is parked |
-| `autoStart` | `false` | Opens WhatsApp when the shell starts |
+| `autoStart` | `false` | Opens WhatsApp when the shell starts — the icon's menu toggles this as "Launch on Login" |
 | `dimWhenClosed` | `true` | Dims the icon while WhatsApp is not running |
 | `hideWhenNotRunning` | `false` | Removes the icon from the bar while it is closed |
 | `middleClickCloses` | `true` | Turn off to keep the middle button inert |

@@ -34,7 +34,7 @@
       "glyphOffsetY": -0.5,
       "badge": "Dot",
       "badgeColor": "",
-      "badgeScale": 0.6,
+      "badgeScale": 0.45,
       "tintWhenUnread": false,
       "hideMode": "Special workspace",
       "specialWorkspace": "whatsapp",
@@ -126,8 +126,8 @@
         "min": 0.2,
         "max": 0.9,
         "step": 0.05,
-        "defaultValue": 0.6,
-        "description": "The dot's diameter as a fraction of the icon, the same scale the tray daemon paints by. 0.6 matches the tray icon; smaller reads like Slack's."
+        "defaultValue": 0.45,
+        "description": "The dot's diameter as a fraction of the icon, the same scale the tray daemon paints by. 0.45 reads like Slack's; 0.6 is the tray daemon's own default."
       },
       {
         "key": "tintWhenUnread",

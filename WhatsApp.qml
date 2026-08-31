@@ -25,7 +25,7 @@ BarWidget {
   // The tray daemon's --badge-scale, same default: the dot as a fraction of
   // the icon. How big a dot should be is a matter of taste, and taste is what
   // settings are for.
-  readonly property real badgeScale: Math.max(0.2, Math.min(0.9, Number(setting("badgeScale", 0.6))))
+  readonly property real badgeScale: Math.max(0.2, Math.min(0.9, Number(setting("badgeScale", 0.45))))
   readonly property bool tintWhenUnread: setting("tintWhenUnread", false) === true
   readonly property string hideMode: String(setting("hideMode", "Special workspace"))
   readonly property string specialName: String(setting("specialWorkspace", "whatsapp"))

@@ -20,11 +20,6 @@ BarWidget {
   readonly property string glyph: String(setting("glyph", "󰖣"))
   readonly property int glyphSize: Math.max(0, Number(setting("glyphSize", 0)))
   readonly property real glyphOffsetY: Number(setting("glyphOffsetY", -0.5))
-  // The glyph steps aside so the badge owns the corner rather than sitting on
-  // the mark — the tray daemon's `--glyph-offset 4` on its 64px canvas, in the
-  // same proportion. Constant, badge or no badge: an icon that shifts when a
-  // message lands is worse than one standing a pixel off centre.
-  readonly property int glyphNudgeX: Math.round(Style.bar.iconCanvas / 16)
   readonly property string badgeStyle: String(setting("badge", "Dot"))
   readonly property string badgeOverride: String(setting("badgeColor", ""))
   // The tray daemon's --badge-scale, same default: the dot as a fraction of
@@ -144,11 +139,11 @@ BarWidget {
   readonly property color glyphColor: root.unread > 0 && root.tintWhenUnread ? root.urgentColor : root.foreground
 
   // This glyph is an outline with a tail, and an outline reads smaller than
-  // the solid marks around it at the same point size — set to the bar's icon
-  // font it looked shrunken next to the chevron and the calendar. A point
-  // over makes their ink boxes match, which is what the eye compares.
+  // the solid marks around it — a point under the bar's icon font, which is
+  // where this started, left it visibly shrunken. At parity the ink boxes
+  // line up, and a point over is already the biggest thing in the row.
   readonly property int glyphPixelSize: root.glyphSize > 0
-    ? root.glyphSize : Math.max(8, Style.bar.iconFont + 1)
+    ? root.glyphSize : Math.max(8, Style.bar.iconFont)
 
   // ----------------------------------------------------------------- actions
   //
@@ -414,7 +409,6 @@ BarWidget {
         anchors.centerIn: parent
         anchors.horizontalCenterOffset: painted.implicitWidth / 2
           - (metrics.tightBoundingRect.x + Math.max(1, metrics.tightBoundingRect.width) / 2)
-          - root.glyphNudgeX
         anchors.verticalCenterOffset: root.glyphOffsetY
         text: root.glyph
         color: root.glyphColor

@@ -173,7 +173,7 @@ Through the shell's plugin panel, or directly in `~/.config/omarchy/shell.json`:
 | `windowClass` | `whatsapp` | Case-insensitive substring of the window class to watch |
 | `iconStyle` | `Glyph` | `Glyph` (Nerd Font, bar colored) or `App icon` (the green icon) |
 | `glyph` | `󰖣` | The character drawn by the `Glyph` style |
-| `glyphSize` | `0` | Glyph size in px; `0` follows the bar, a point over its icon size |
+| `glyphSize` | `0` | Glyph size in px; `0` follows the bar's icon size |
 | `glyphOffsetY` | `-0.5` | Vertical nudge in px, negative is up |
 | `badge` | `Dot` | `Dot`, `Count` or `None` |
 | `badgeColor` | — | A hex color; empty follows the theme's urgent color |

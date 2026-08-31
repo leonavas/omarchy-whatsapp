@@ -88,7 +88,7 @@
         "max": 32,
         "step": 1,
         "defaultValue": 0,
-        "description": "0 follows the bar, one pixel over its icon size — which is what makes this outline glyph's ink box match the solid icons around it. Only used by the Glyph style."
+        "description": "0 follows the bar's icon size — which is what makes this outline glyph's ink box match the solid icons around it. Only used by the Glyph style."
       },
       {
         "key": "glyphOffsetY",

@@ -14,7 +14,9 @@ const { ipcRenderer } = require("electron");
 
 const SEL = {
   pane: "#pane-side",
-  row: '[role="listitem"]',
+  // Chat rows were role="listitem" for years and are role="row" today; the
+  // probe (--probe) is how the next rename gets caught.
+  row: '[role="row"], [role="listitem"]',
   badge: '[data-testid="icon-unread-count"]',
   // Chats put away in "Archived" carry the same badge and WhatsApp leaves
   // them out of its own count; counting them lights the badge permanently.
@@ -68,14 +70,26 @@ function rowInfo(row) {
   }
 
   const lines = (row.innerText || "").split("\n").map(s => s.trim()).filter(Boolean);
-  const time = lines.length >= 2 && lines[1] !== preview ? lines[1] : "";
   if (!preview) {
     for (let i = lines.length - 1; i >= 0; i--) {
       const line = lines[i];
-      if (line === name || line === time || /^\d+$/.test(line)) continue;
+      if (line === name || /^\d+$/.test(line)) continue;
       preview = line;
       break;
     }
+  }
+
+  // The line order inside a row is not stable across builds, so the time is
+  // recognized rather than positioned: a clock or a date wherever it sits,
+  // else the shortest leftover line ("Ontem", a weekday), else nothing.
+  let time = "";
+  const leftovers = lines.filter(l => l !== name && l !== preview && !/^\d+$/.test(l));
+  for (const line of leftovers) {
+    if (/\d{1,2}:\d{2}/.test(line) || /\d{1,2}[\/.\-]\d{1,2}/.test(line)) { time = line; break; }
+  }
+  if (!time && leftovers.length > 0) {
+    const shortest = leftovers.reduce((a, b) => (a.length <= b.length ? a : b));
+    if (shortest.length <= 16) time = shortest;
   }
 
   return { name, preview, time };

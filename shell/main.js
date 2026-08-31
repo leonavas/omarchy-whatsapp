@@ -62,6 +62,39 @@ function handleArgv(argv) {
     if (arg.startsWith("--open-chat=")) {
       const name = arg.slice("--open-chat=".length);
       if (win && name) win.webContents.send("wa-open-chat", name);
+    } else if (arg === "--probe") {
+      // Prints counts of the DOM shapes the scraper depends on — and only
+      // counts: names and messages never reach the log. WhatsApp redoes its
+      // DOM between builds, and this answers "which selector went stale"
+      // without opening devtools.
+      focus = false;
+      if (win) {
+        win.webContents.executeJavaScript(`(function () {
+          var out = {};
+          var pane = document.getElementById("pane-side");
+          out.pane = !!pane;
+          out.title = document.title;
+          if (!pane) return JSON.stringify(out);
+          out.listitems = pane.querySelectorAll('[role="listitem"]').length;
+          out.role_row = pane.querySelectorAll('[role="row"]').length;
+          out.role_gridcell = pane.querySelectorAll('[role="gridcell"]').length;
+          out.testid_unread = pane.querySelectorAll('[data-testid="icon-unread-count"]').length;
+          out.any_testid = pane.querySelectorAll("[data-testid]").length;
+          out.aria_spans = pane.querySelectorAll("span[aria-label]").length;
+          var digits = 0;
+          pane.querySelectorAll("span[aria-label]").forEach(function (s) {
+            if (/^\\d+$/.test((s.textContent || "").trim())) digits += 1;
+          });
+          out.numeric_badges = digits;
+          out.titled_spans = pane.querySelectorAll("span[title]").length;
+          out.dir_auto = pane.querySelectorAll('span[dir="auto"]').length;
+          return JSON.stringify(out);
+        })()`).then((result) => {
+          console.log("whatsapp-shell: probe=" + result);
+        }).catch((err) => {
+          console.log("whatsapp-shell: probe-failed=" + err);
+        });
+      }
     } else if (arg === "--test-notification") {
       // Fires an HTML5 notification from inside the page — the same path
       // WhatsApp's own notifications take — without touching the window:
@@ -115,6 +148,32 @@ function createWindow() {
   });
 
   win.on("closed", () => { win = null; });
+
+  // The preload lives in an isolated context, so the page's Notification is
+  // out of its reach; this wrapper is injected into the page's own world and
+  // logs every attempt. It answers the question that decides where to look
+  // when notifications go quiet: is WhatsApp even calling the API?
+  win.webContents.on("did-finish-load", () => {
+    win.webContents.executeJavaScript(`(function () {
+      if (window.__waNotifWrapped) return; window.__waNotifWrapped = true;
+      var Orig = window.Notification;
+      if (!Orig) { console.log("[wa-notif] Notification API missing"); return; }
+      function Wrapped(title, opts) {
+        console.log("[wa-notif] attempt, permission=" + Orig.permission);
+        return new Orig(title, opts);
+      }
+      Wrapped.requestPermission = Orig.requestPermission.bind(Orig);
+      Object.defineProperty(Wrapped, "permission", { get: function () { return Orig.permission; } });
+      window.Notification = Wrapped;
+      console.log("[wa-notif] wrapper installed, permission=" + Orig.permission);
+    })()`).catch(() => {});
+  });
+
+  win.webContents.on("console-message", (event, level, message) => {
+    const text = typeof message === "string" ? message : (event && event.message) || "";
+    if (text.startsWith("[wa-notif]")) console.log("whatsapp-shell:", text);
+  });
+
   win.loadURL(WA_URL);
 }
 

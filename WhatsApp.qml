@@ -358,11 +358,10 @@ BarWidget {
     onPressed: function(mouseButton) {
       if (mouseButton === Qt.MiddleButton) {
         if (root.closeOnMiddle) root.closeWindow()
-      } else if (mouseButton === Qt.RightButton) {
-        root.open()
       } else {
-        // The left button opens the menu, the way the tray icon's right
-        // button did; show/hide lives inside it as the first entry.
+        // Left and right both open the menu — the right button because that
+        // is what every tray icon answers with, the left because show/hide
+        // lives inside it as the first entry either way.
         root.menuOpen = !root.menuOpen
       }
     }

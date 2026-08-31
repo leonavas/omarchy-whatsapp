@@ -68,7 +68,7 @@ window can live parked out of sight.
 |---|---|---|
 | Left click | Open WhatsApp, bring it back, or put it away | Menu: Open or Hide / Launch on Login / Quit WhatsApp |
 | Middle click | Open or focus it, never hides it | Close WhatsApp |
-| Right click | Menu: Open / Hide / Launch on Login / Quit WhatsApp | Open or focus it, never hides it |
+| Right click | Menu: Open / Hide / Launch on Login / Quit WhatsApp | Same menu as the left click |
 | Hover | One-line tooltip | Preview of the unread chats (needs the shell app) |
 
 Hiding does not close WhatsApp: the window moves to the `special:whatsapp`

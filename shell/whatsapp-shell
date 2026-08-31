@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# WhatsApp shell: WhatsApp Web on the system Electron, with the chat list
+# scraped out of the page and published for the bar widget's hover preview.
+#
+# The app holds a single-instance lock, so running this again while it is up
+# does not open a second window — the arguments are forwarded to the running
+# instance instead. That is the whole command interface:
+#
+#   whatsapp-shell                    open (or focus) the window
+#   whatsapp-shell --open-chat=NAME   jump to the chat with that title
+set -euo pipefail
+
+DIR="$(cd "$(dirname "$(realpath "$0")")" && pwd)"
+
+for candidate in electron electron43 electron40; do
+  if command -v "$candidate" >/dev/null 2>&1; then
+    exec "$candidate" --ozone-platform-hint=auto "$DIR" "$@"
+  fi
+done
+
+echo "whatsapp-shell: no electron binary found (pacman -S electron)" >&2
+exit 1

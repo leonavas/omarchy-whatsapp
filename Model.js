@@ -70,6 +70,51 @@ function badgeLabel(count) {
   return count > 99 ? "99+" : String(count)
 }
 
+// The shell app (shell/whatsapp-shell) publishes what it scrapes out of the
+// page — unread chats with contact, last message, count and time — as JSON
+// in the runtime dir. Absent or malformed means "no shell running": the
+// widget then falls back to the title pipe and simply has no previews.
+function parseState(text) {
+  var value = String(text || "").trim()
+  if (value.length === 0) return null
+  var data
+  try {
+    data = JSON.parse(value)
+  } catch (e) {
+    return null
+  }
+  if (!data || typeof data !== "object" || !Array.isArray(data.chats)) return null
+  return data
+}
+
+function stateUnread(state) {
+  if (!state) return 0
+  var count = Number(state.unread)
+  return isFinite(count) && count > 0 ? Math.floor(count) : 0
+}
+
+// The rows the hover popup renders, already trimmed and clamped so the QML
+// side can trust every field to exist.
+function stateChats(state, max) {
+  if (!state) return []
+  var limit = Math.max(1, Number(max) || 6)
+  var rows = []
+  for (var i = 0; i < state.chats.length && rows.length < limit; i++) {
+    var chat = state.chats[i]
+    if (!chat || typeof chat !== "object") continue
+    var name = String(chat.name || "").trim()
+    if (name.length === 0) continue
+    var count = Number(chat.count)
+    rows.push({
+      name: name,
+      preview: String(chat.preview || "").trim(),
+      time: String(chat.time || "").trim(),
+      count: isFinite(count) && count > 0 ? Math.floor(count) : 1,
+    })
+  }
+  return rows
+}
+
 function workspaceName(toplevel) {
   if (!toplevel) return ""
   var workspace = toplevel.workspace

@@ -2,7 +2,9 @@
 
 WhatsApp as a tray icon on the Omarchy desktop, the way Slack's behaves: click
 to open it, click again to put it away without closing it, and a red dot on the
-icon while there are unread chats.
+icon while there are unread chats. With the bundled shell app, hovering the bar
+icon previews the unread chats — contact, last message, count — in the bar's
+own UI.
 
 WhatsApp has no Linux client and a browser web app publishes no tray icon, so
 this builds one: a content script counts the unread chats inside the page, and
@@ -116,6 +118,42 @@ Colors follow the theme and repaint themselves when you switch it.
 Point `--launch` at it and leave `--window-class` alone — `whatsapp` also
 matches `whatsapp-for-linux` and friends.
 
+## The shell app
+
+`shell/whatsapp-shell` runs WhatsApp Web in its own Electron window instead of
+a Chromium `--app` one. Same page, one difference that matters: the script
+inside it belongs to us, so more than a number fits through the pipe. It hands
+the unread chats — contact, last message, count, time — to the bar widget,
+which shows them in a popup when you hover the icon. Clicking a row jumps
+straight to that conversation.
+
+Nothing to build or install beyond Electron itself (`pacman -S electron`,
+already present on a box with another Electron app). Point the widget at it:
+
+```json
+{ "id": "leonavas.whatsapp", "launchCommand": "~/.config/omarchy/plugins/leonavas.whatsapp/shell/whatsapp-shell" }
+```
+
+or the tray daemon: `--launch .../shell/whatsapp-shell`. First launch shows the
+QR pairing screen — the shell keeps its own session, separate from the
+browser's, under `~/.local/state/whatsapp-shell`.
+
+The hover preview renders on the **bar widget**, not on the tray icon: an SNI
+tray item never hears about the pointer, so its hover behaviour belongs to the
+tray host and stops at a one-line tooltip. Running the widget means unpinning
+the tray icon (or quitting the daemon) unless you want the icon twice.
+
+Everything else keeps working as before: the shell still publishes
+`(N) WhatsApp` into the window title and its window class still matches
+`whatsapp`, so the tray daemon, the badge and the park/show logic neither know
+nor care which shell runs the page. The previews live only in
+`$XDG_RUNTIME_DIR/whatsapp-shell/state.json` — a private tmpfs, gone at
+logout; message text never lands on disk.
+
+`--open-chat=NAME` is the whole command interface: invoking the launcher while
+the shell runs forwards the argument to the open window instead of starting a
+second one.
+
 ## Bar widget settings
 
 Through the shell's plugin panel, or directly in `~/.config/omarchy/shell.json`:
@@ -149,6 +187,8 @@ Through the shell's plugin panel, or directly in `~/.config/omarchy/shell.json`:
 | `dimWhenClosed` | `true` | Dims the icon while WhatsApp is not running |
 | `hideWhenNotRunning` | `false` | Removes the icon from the bar while it is closed |
 | `middleClickCloses` | `true` | Turn off to keep the middle button inert |
+| `hoverPreview` | `true` | Hovering the icon previews the unread chats; needs the shell app |
+| `previewRows` | `6` | Most chats the preview shows before saying "+N more" |
 
 `shell.json` reloads on save, so setting changes apply immediately. Editing the
 QML needs `omarchy restart shell` to reach widgets already on the bar.
@@ -171,8 +211,9 @@ QML needs `omarchy restart shell` to reach widgets already on the bar.
 | File | Contents |
 |---|---|
 | `tray/whatsapp-tray` | The tray daemon |
-| `chromium/whatsapp-unread/` | Content script that publishes the count into the window title |
-| `WhatsApp.qml`, `Model.js` | The bar widget |
+| `shell/` | The Electron shell app: WhatsApp Web plus the chat scrape feeding the hover preview |
+| `chromium/whatsapp-unread/` | Content script that publishes the count into the window title (plain-Chromium setups) |
+| `WhatsApp.qml`, `Model.js` | The bar widget, hover preview included |
 | `manifest.json` | Metadata and settings read by the shell |
 
 [`NOTES.md`](NOTES.md) explains why it is built this way — worth reading before

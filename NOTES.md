@@ -29,6 +29,54 @@ Three consequences, each of which cost a debugging round:
 Badges are matched on `[data-testid="icon-unread-count"]`, falling back to
 badges whose text is a bare number. Neither depends on the interface language.
 
+## The shell app and the hover preview
+
+The window title carries one integer, and that is all a content script in
+someone else's browser can publish. Message previews need a script we own, so
+the shell app runs the same page on Electron with a preload that scrapes the
+chat list and hands it out — and three placement decisions fall out of what
+each surface can actually do:
+
+- **The preview pops on the bar widget, not the tray icon.** An SNI item never
+  hears about the pointer: hover is the host's business end to end, and
+  omarchy's `Tray.qml` answers it with the item's tooltip *title* in the
+  shared bar bubble — one line, no description field, no per-item popup. No
+  daemon change can add more; the widget's own `PopupCard` can draw anything.
+  Its `triggerMode: "hover"` skips the focus grab, which is what lets the
+  pointer travel from the button into the card without the card closing.
+- **The state crosses processes as a file in `$XDG_RUNTIME_DIR`**, written
+  tmp-then-rename. A file is the one transport the widget already knows how
+  to watch (`FileView`), atomic rename means it never reads half a JSON
+  document, and the runtime dir is a private tmpfs — message text stays off
+  disk and dies with the session. The widget still ignores the file whenever
+  no whatsapp window exists, because a shell that crashed writes no goodbye:
+  the orderly path writes `running: false` on quit, the disorderly one leaves
+  yesterday's file behind.
+- **The title pipe stays on.** The preload republishes `(N) WhatsApp` exactly
+  like the content script does, so the tray daemon, the badge fallback and
+  plain-Chromium setups all keep working without knowing the shell exists.
+
+The scrape itself trusts as little as possible: every selector sits in `SEL`
+at the top of `preload.js`, rows are read titled-spans-first with the row's
+`innerText` lines (`[name, time, preview, badge]` in DOM order) as fallback,
+and a chat is "unread" by the same badge test and archived exclusion the
+content script uses. When WhatsApp redoes its DOM, that one file is the blast
+radius.
+
+Two Electron details that cost a round each: the default user agent advertises
+`Electron/` and WhatsApp turns it away — it is stripped before the first load —
+and the Wayland app id comes from the `--wayland-app-id` *Chromium switch*
+(`--class` is X11-only), which is what makes Hyprland report a class the
+daemon's `whatsapp` substring matches.
+
+Jumping to a chat rides the single-instance lock: a second launch of the
+shell never opens a window, it forwards its argv (`--open-chat=NAME`) to the
+running instance and exits, so the widget "sends a command" by just running
+the launcher. The chat is found by its visible name — the only identity the
+scraped rows carry — and clicked with the full synthetic sequence (mousedown,
+mouseup, click), since React-style lists tend to act on the press rather than
+wait for the click.
+
 ## Why the tray icon cannot be a plugin
 
 `Quickshell.Services.SystemTray` is a *host*: it consumes items and has no API

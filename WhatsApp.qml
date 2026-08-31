@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import Quickshell.Hyprland
+import Quickshell.Io
 import qs.Commons
 import qs.Ui
 import "Model.js" as Model
@@ -31,6 +32,8 @@ BarWidget {
   readonly property bool dimWhenClosed: setting("dimWhenClosed", true) !== false
   readonly property bool hideWhenNotRunning: setting("hideWhenNotRunning", false) === true
   readonly property bool closeOnMiddle: setting("middleClickCloses", true) !== false
+  readonly property bool hoverPreview: setting("hoverPreview", true) !== false
+  readonly property int previewRows: Math.max(1, Number(setting("previewRows", 6)))
 
   // ------------------------------------------------------------------- theme
   readonly property color foreground: bar ? bar.barForeground : Color.foreground
@@ -51,9 +54,46 @@ BarWidget {
   readonly property var window: Model.findWindow(root.toplevels, root.windowClass)
   readonly property bool running: root.window !== null && root.window !== undefined
   readonly property string windowTitle: Model.titleOf(root.window)
-  readonly property int unread: Model.unreadFromTitle(root.windowTitle)
   readonly property bool focused: Model.isActive(root.window)
   readonly property bool parked: Model.isParked(root.window, root.specialName)
+
+  // ------------------------------------------------------------- shell state
+  //
+  // The shell app scrapes the chat list out of the page and publishes it as
+  // JSON in the runtime dir; the file is the whole interface between the two
+  // processes. Gated on `running`: a file left behind by a crashed shell must
+  // not keep yesterday's messages in the popup.
+  property var chatState: null
+  readonly property bool stateLive: root.running && root.chatState !== null
+    && root.chatState.running !== false
+  readonly property var previewChats: root.stateLive
+    ? Model.stateChats(root.chatState, root.previewRows) : []
+
+  // The title pipe stays authoritative for plain-Chromium setups; the state
+  // file speaks for the shell, which feeds both from the same scrape.
+  readonly property int unread: root.stateLive
+    ? Model.stateUnread(root.chatState)
+    : Model.unreadFromTitle(root.windowTitle)
+
+  FileView {
+    id: stateFile
+    path: Quickshell.env("XDG_RUNTIME_DIR") + "/whatsapp-shell/state.json"
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: root.chatState = Model.parseState(text())
+    onLoadFailed: root.chatState = null
+  }
+
+  // The watch only helps once the file exists. Until the shell's first write
+  // lands — first launch, or a login race — poke the reader ourselves.
+  onRunningChanged: stateFile.reload()
+  Timer {
+    interval: 5000
+    repeat: true
+    running: root.running && root.chatState === null
+    onTriggered: stateFile.reload()
+  }
 
   // Where the window belongs when it is not put away. Remembered rather than
   // configured, so it goes back where it was last used instead of surfacing
@@ -176,6 +216,16 @@ BarWidget {
     else root.focusWindow()
   }
 
+  // A preview row was clicked: tell the shell app which chat to land on —
+  // its single-instance lock turns a second launch into a message to the
+  // running window — and bring the window up the way a plain click would.
+  function openChat(name) {
+    var launcher = String(Qt.resolvedUrl("shell/whatsapp-shell")).replace(/^file:\/\//, "")
+    Util.execArgv([launcher, "--open-chat=" + String(name)])
+    root.open()
+    root.popupOpen = false
+  }
+
   Timer {
     id: refocusTimer
     property string address: ""
@@ -217,6 +267,45 @@ BarWidget {
     onTriggered: if (!root.running && root.isPrimaryInstance()) root.launch()
   }
 
+  // ----------------------------------------------------------- hover preview
+  //
+  // Hovering the button with unread chats opens a popup of previews drawn by
+  // this widget, not by WhatsApp. The delay keeps a cursor passing through
+  // the bar from flashing it; once open it stays while the pointer is on the
+  // button or the card, so the rows can be reached and clicked.
+  property bool popupOpen: false
+  function close() { root.popupOpen = false }
+
+  readonly property bool previewAvailable: root.hoverPreview && root.previewChats.length > 0
+  readonly property bool previewHovered: button.tooltipHovered || popup.containsMouse
+
+  onPreviewAvailableChanged: if (!previewAvailable) root.popupOpen = false
+  onPreviewHoveredChanged: {
+    if (root.previewHovered && root.previewAvailable) {
+      closePreviewTimer.stop()
+      if (!root.popupOpen) openPreviewTimer.restart()
+    } else {
+      openPreviewTimer.stop()
+      if (root.popupOpen) closePreviewTimer.restart()
+    }
+  }
+
+  Timer {
+    id: openPreviewTimer
+    interval: 350
+    repeat: false
+    onTriggered: if (root.previewHovered && root.previewAvailable) root.popupOpen = true
+  }
+
+  // The gap between the button and the card is real screen distance; the
+  // grace period lets the pointer cross it without the popup vanishing.
+  Timer {
+    id: closePreviewTimer
+    interval: 250
+    repeat: false
+    onTriggered: if (!root.previewHovered) root.popupOpen = false
+  }
+
   // ------------------------------------------------------------------ layout
   visible: root.running || !root.hideWhenNotRunning
   implicitWidth: root.visible ? button.implicitWidth : 0
@@ -238,7 +327,9 @@ BarWidget {
     active: root.unread > 0
     useActiveColor: root.tintWhenUnread
     dimmed: !root.running && root.dimWhenClosed
-    tooltipText: root.tooltip
+    // The preview card takes over hover when it has rows to show; handing
+    // the bar an empty tooltip on top of it is a no-op, not an empty bubble.
+    tooltipText: root.previewAvailable ? "" : root.tooltip
     onPressed: function(mouseButton) {
       if (mouseButton === Qt.MiddleButton) {
         if (root.closeOnMiddle) root.closeWindow()
@@ -340,6 +431,146 @@ BarWidget {
       font.pixelSize: Style.font.caption
       font.bold: true
       renderType: Text.NativeRendering
+    }
+  }
+
+  // The hover preview: unread chats as this widget draws them — contact,
+  // last message, count — fed by the shell app's state file. Hover mode
+  // skips the focus grab, so the pointer travels freely between the button
+  // and the card, and clicking a row jumps straight to that conversation.
+  PopupCard {
+    id: popup
+    anchorItem: root
+    bar: root.bar
+    owner: root
+    open: root.popupOpen
+    triggerMode: "hover"
+    contentWidth: popup.fittedContentWidth(Style.space(340))
+    contentHeight: popup.fittedContentHeight(previewColumn.implicitHeight)
+
+    readonly property color fg: root.bar ? root.bar.foreground : Color.foreground
+
+    Column {
+      id: previewColumn
+      anchors.fill: parent
+      spacing: Style.space(6)
+
+      Text {
+        text: root.unread + (root.unread === 1 ? " unread chat" : " unread chats")
+        color: popup.fg
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.bodySmall
+        font.bold: true
+      }
+
+      PanelSeparator {
+        foreground: popup.fg
+      }
+
+      Repeater {
+        model: root.previewChats
+
+        Rectangle {
+          id: chatRow
+          required property var modelData
+
+          width: previewColumn.width
+          height: chatInner.implicitHeight + Style.space(10)
+          radius: Style.spacing.labelGap
+          color: rowArea.containsMouse
+            ? Qt.rgba(popup.fg.r, popup.fg.g, popup.fg.b, 0.08) : "transparent"
+
+          Row {
+            id: chatInner
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.leftMargin: Style.space(6)
+            anchors.rightMargin: Style.space(6)
+            spacing: Style.space(8)
+
+            Column {
+              width: parent.width - meta.width - chatInner.spacing
+              spacing: Style.space(2)
+              anchors.verticalCenter: parent.verticalCenter
+
+              Text {
+                text: chatRow.modelData.name
+                color: popup.fg
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.bodySmall
+                font.bold: true
+                elide: Text.ElideRight
+                width: parent.width
+              }
+
+              Text {
+                text: chatRow.modelData.preview
+                color: Qt.darker(popup.fg, 1.4)
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                elide: Text.ElideRight
+                width: parent.width
+                visible: text !== ""
+              }
+            }
+
+            Column {
+              id: meta
+              width: Math.max(timeText.implicitWidth, pill.width)
+              spacing: Style.space(4)
+              anchors.verticalCenter: parent.verticalCenter
+
+              Text {
+                id: timeText
+                text: chatRow.modelData.time
+                color: Qt.darker(popup.fg, 1.6)
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                anchors.right: parent.right
+                visible: text !== ""
+              }
+
+              Rectangle {
+                id: pill
+                height: pillCount.implicitHeight + Style.space(3)
+                width: Math.max(height, pillCount.implicitWidth + Style.space(8))
+                radius: height / 2
+                color: root.badgeColor
+                anchors.right: parent.right
+
+                Text {
+                  id: pillCount
+                  anchors.centerIn: parent
+                  text: Model.badgeLabel(chatRow.modelData.count)
+                  color: root.badgeTextColor
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  font.bold: true
+                }
+              }
+            }
+          }
+
+          MouseArea {
+            id: rowArea
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: root.openChat(chatRow.modelData.name)
+          }
+        }
+      }
+
+      // The scrape caps how many rows travel through the state file, so the
+      // popup says when the list on screen is not the whole story.
+      Text {
+        visible: root.unread > root.previewChats.length
+        text: "+" + (root.unread - root.previewChats.length) + " more"
+        color: Qt.darker(popup.fg, 1.6)
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+      }
     }
   }
 }

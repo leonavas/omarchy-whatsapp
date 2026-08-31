@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "leonavas.whatsapp",
   "name": "WhatsApp",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "leonavas",
   "license": "MIT",
-  "description": "A tray-style WhatsApp button for the bar: opens the web app, parks it out of sight, and carries the unread count as a badge.",
+  "description": "A tray-style WhatsApp button for the bar: opens the web app (or the bundled shell app), parks it out of sight, carries the unread count as a badge, and previews unread chats on hover.",
   "kinds": [
     "bar-widget"
   ],
@@ -43,7 +43,9 @@
       "autoStart": false,
       "dimWhenClosed": true,
       "hideWhenNotRunning": false,
-      "middleClickCloses": true
+      "middleClickCloses": true,
+      "hoverPreview": true,
+      "previewRows": 6
     },
     "schema": [
       {
@@ -190,6 +192,22 @@
         "type": "boolean",
         "label": "Middle click closes WhatsApp",
         "defaultValue": true
+      },
+      {
+        "key": "hoverPreview",
+        "type": "boolean",
+        "label": "Preview unread chats on hover",
+        "defaultValue": true,
+        "description": "Hovering the icon opens a popup with contact, last message and count per unread chat. Needs WhatsApp running in the bundled shell app (shell/whatsapp-shell) — the plain web app has no way to hand the messages out."
+      },
+      {
+        "key": "previewRows",
+        "type": "integer",
+        "label": "Chats shown in the preview",
+        "min": 1,
+        "max": 20,
+        "step": 1,
+        "defaultValue": 6
       }
     ]
   }

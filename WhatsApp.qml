@@ -84,9 +84,27 @@ BarWidget {
     onLoadFailed: root.chatState = null
   }
 
+  // Quit hides the icon as well as closing the window, the way quitting a
+  // tray application does — same semantics as the tray daemon's Quit.
+  // Runtime state rather than a setting: the icon returns by itself the next
+  // time a WhatsApp window appears, however it was started, and at login.
+  property bool dismissed: false
+
+  // A close that does not take is the one way this state could strand a
+  // running WhatsApp with no icon, so it is re-checked a few seconds later.
+  Timer {
+    id: dismissCheckTimer
+    interval: 5000
+    repeat: false
+    onTriggered: if (root.running) root.dismissed = false
+  }
+
   // The watch only helps once the file exists. Until the shell's first write
   // lands — first launch, or a login race — poke the reader ourselves.
-  onRunningChanged: stateFile.reload()
+  onRunningChanged: {
+    stateFile.reload()
+    if (root.running) root.dismissed = false
+  }
   Timer {
     interval: 5000
     repeat: true
@@ -332,7 +350,7 @@ BarWidget {
   }
 
   // ------------------------------------------------------------------ layout
-  visible: root.running || !root.hideWhenNotRunning
+  visible: (root.running || !root.hideWhenNotRunning) && !root.dismissed
   implicitWidth: root.visible ? button.implicitWidth : 0
   implicitHeight: root.visible ? button.implicitHeight : 0
 
@@ -703,6 +721,8 @@ BarWidget {
         enabled: root.running
         onActivated: {
           root.close()
+          root.dismissed = true
+          dismissCheckTimer.restart()
           root.closeWindow()
         }
       }

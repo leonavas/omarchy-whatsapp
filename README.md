@@ -75,10 +75,11 @@ Hiding does not close WhatsApp: the window moves to the `special:whatsapp`
 workspace, where it keeps running and keeps counting. Bringing it back returns
 it to the workspace it was last used on and takes you there.
 
-**Quit WhatsApp** closes the window *and* takes the icon out of the tray, the
-way quitting any tray application does. The daemon keeps running, unseen, and
-puts the icon back the moment WhatsApp is started again — from the launcher, a
-keybind, the bar widget, anything. Nothing has to be restarted.
+**Quit WhatsApp** closes the window *and* takes the icon away, the way
+quitting any tray application does — from the tray and from the bar widget
+alike. Both keep watching, unseen, and put the icon back the moment WhatsApp
+is started again — from the launcher, a keybind, anything. Nothing has to be
+restarted.
 
 **Launch on Login** is a checkmark in the tray menu, the same one Slack has:
 with it on, the daemon opens WhatsApp a few seconds after login unless it is

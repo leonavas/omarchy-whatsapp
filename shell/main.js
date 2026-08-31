@@ -57,13 +57,20 @@ function clearState() {
 }
 
 function handleArgv(argv) {
+  let focus = true;
   for (const arg of argv) {
     if (arg.startsWith("--open-chat=")) {
       const name = arg.slice("--open-chat=".length);
       if (win && name) win.webContents.send("wa-open-chat", name);
+    } else if (arg === "--test-notification") {
+      // Fires an HTML5 notification from inside the page — the same path
+      // WhatsApp's own notifications take — without touching the window:
+      // pulling focus would defeat a test of something focus can suppress.
+      focus = false;
+      if (win) win.webContents.send("wa-test-notification");
     }
   }
-  if (win) {
+  if (win && focus) {
     if (win.isMinimized()) win.restore();
     win.show();
     win.focus();

@@ -153,6 +153,19 @@ window.addEventListener("DOMContentLoaded", () => {
 // "Open the chat named X": find its row and click it the way a person would.
 // Matched on the visible name — exact first, then prefix — because the name
 // is the only identity the preview rows carry.
+// The notification the diagnostic command asks for. Success or failure goes
+// to the shell's log either way — a notification that throws is invisible by
+// definition, which is exactly when the log line earns its keep.
+ipcRenderer.on("wa-test-notification", () => {
+  try {
+    const note = new Notification("WhatsApp shell", { body: "As notificações estão funcionando" });
+    note.onerror = () => ipcRenderer.send("wa-debug", "test-notification-error");
+    ipcRenderer.send("wa-debug", "test-notification-sent permission=" + Notification.permission);
+  } catch (err) {
+    ipcRenderer.send("wa-debug", "test-notification-threw=" + err);
+  }
+});
+
 ipcRenderer.on("wa-open-chat", (event, name) => {
   const side = pane();
   if (!side || !name) return;

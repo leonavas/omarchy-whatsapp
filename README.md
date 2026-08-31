@@ -148,9 +148,11 @@ nor care which shell runs the page. The previews live only in
 `$XDG_RUNTIME_DIR/whatsapp-shell/state.json` — a private tmpfs, gone at
 logout; message text never lands on disk.
 
-`--open-chat=NAME` is the whole command interface: invoking the launcher while
-the shell runs forwards the argument to the open window instead of starting a
-second one.
+Invoking the launcher while the shell runs forwards its arguments to the open
+window instead of starting a second one — that is the whole command interface:
+`--open-chat=NAME` jumps to a conversation, and `--test-notification` fires a
+notification from inside the page through the same path WhatsApp's own
+notifications take, which is the first thing to run when they go quiet.
 
 ## Bar widget settings
 

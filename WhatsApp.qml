@@ -444,10 +444,9 @@ BarWidget {
 
     visible: root.unread > 0 && root.badgeStyle !== "None"
     z: 2
-    // Slack's dot, measured off its own tray icon: a little under half the
-    // icon, sitting on the bottom-right corner — enough to say "there is
-    // something", which is all a dot is for.
-    height: dotOnly ? Math.round(Style.bar.iconCanvas * 0.45)
+    // Same rule the tray daemon paints by: a dot at roughly three fifths of
+    // the icon, big enough to catch the eye at bar size.
+    height: dotOnly ? Math.round(Style.bar.iconCanvas * 0.6)
                     : Math.round(count.implicitHeight + Style.space(3))
     width: dotOnly ? height : Math.max(height, Math.round(count.implicitWidth + Style.space(6)))
     radius: height / 2

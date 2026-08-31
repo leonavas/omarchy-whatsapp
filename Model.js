@@ -40,17 +40,27 @@ function matches(toplevel, needle) {
 
 // The window the widget speaks for. A focused match wins over a parked one so
 // that clicking while WhatsApp is on screen acts on the copy you are looking
-// at, in the rare case two of them are running.
+// at. Among unfocused matches, a class that *begins* with the needle — a real
+// client, "whatsapp-shell" — beats one that merely contains it, a browser
+// wrapper's "chrome-web.whatsapp.com__-Default": with both open (the shell
+// being tried while the web app still runs), every click must land on the
+// same window, not on whichever the toplevel list happens to yield first.
 function findWindow(toplevels, needle) {
+  var value = String(needle || "").toLowerCase()
   var list = toplevels || []
-  var first = null
+  var best = null
+  var bestRank = -1
   for (var i = 0; i < list.length; i++) {
     var toplevel = list[i]
-    if (!matches(toplevel, needle)) continue
+    if (!matches(toplevel, value)) continue
     if (isActive(toplevel)) return toplevel
-    if (first === null) first = toplevel
+    var rank = classOf(toplevel).toLowerCase().indexOf(value) === 0 ? 1 : 0
+    if (rank > bestRank) {
+      best = toplevel
+      bestRank = rank
+    }
   }
-  return first
+  return best
 }
 
 // WhatsApp Web writes the number of conversations with something new into

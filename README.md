@@ -177,7 +177,7 @@ Through the shell's plugin panel, or directly in `~/.config/omarchy/shell.json`:
 | `glyphOffsetY` | `-0.5` | Vertical nudge in px, negative is up |
 | `badge` | `Dot` | `Dot`, `Count` or `None` |
 | `badgeColor` | — | A hex color; empty follows the theme's urgent color |
-| `tintWhenUnread` | `true` | Colors the icon while there is something unread |
+| `tintWhenUnread` | `false` | Colors the icon while there is something unread; off, only the badge lights up |
 | `hideMode` | `Special workspace` | `Never hide` leaves clicking as focus only |
 | `specialWorkspace` | `whatsapp` | Used as `special:<name>` |
 | `startHidden` | `true` | Parks the window shortly after opening it |

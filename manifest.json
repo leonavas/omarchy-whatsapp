@@ -34,7 +34,7 @@
       "glyphOffsetY": -0.5,
       "badge": "Dot",
       "badgeColor": "",
-      "tintWhenUnread": true,
+      "tintWhenUnread": false,
       "hideMode": "Special workspace",
       "specialWorkspace": "whatsapp",
       "startHidden": true,
@@ -122,7 +122,7 @@
         "key": "tintWhenUnread",
         "type": "boolean",
         "label": "Color the icon while there are unread messages",
-        "defaultValue": true
+        "defaultValue": false
       },
       {
         "key": "hideMode",

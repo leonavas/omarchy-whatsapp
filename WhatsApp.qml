@@ -22,7 +22,7 @@ BarWidget {
   readonly property real glyphOffsetY: Number(setting("glyphOffsetY", -0.5))
   readonly property string badgeStyle: String(setting("badge", "Dot"))
   readonly property string badgeOverride: String(setting("badgeColor", ""))
-  readonly property bool tintWhenUnread: setting("tintWhenUnread", true) !== false
+  readonly property bool tintWhenUnread: setting("tintWhenUnread", false) === true
   readonly property string hideMode: String(setting("hideMode", "Special workspace"))
   readonly property string specialName: String(setting("specialWorkspace", "whatsapp"))
   readonly property bool startHidden: setting("startHidden", true) !== false

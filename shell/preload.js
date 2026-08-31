@@ -32,30 +32,32 @@ const MAX_MESSAGES = 10;
 let appliedTitle = null;
 let lastPayload = "";
 
-// Messages accumulated from the notifications WhatsApp fires (the sidebar
-// only carries a chat's last line). Keyed by the notification title, which
-// is the chat name; forgotten the moment the chat's unread badge clears.
-const messagesByChat = new Map();
+// The sidebar only ever shows a chat's latest message — but it shows every
+// one of them in turn: each arrival rewrites the preview line and bumps the
+// badge. Diffing the line whenever the count rises replays the sequence,
+// which is how the popup gets all of a conversation's messages instead of
+// just the last. Gated on the count on purpose: the preview line also
+// flickers through "typing…" and drafts, and none of those move the badge.
+// Keyed by chat name; forgotten the moment the chat's badge clears.
+const trackByChat = new Map();
 
-document.addEventListener("wa-note", () => {
-  const stash = document.getElementById("__wa-note-stash");
-  if (!stash) return;
-  let note;
-  try {
-    note = JSON.parse(stash.getAttribute("data-note") || "");
-  } catch (err) {
-    return;
+function remember(info, count) {
+  let entry = trackByChat.get(info.name);
+  if (!entry) {
+    // First sighting: whatever came before this line is gone for good — the
+    // sidebar has no history — so an already-piled-up chat starts at one.
+    entry = { count: count, messages: info.preview ? [info.preview] : [] };
+    trackByChat.set(info.name, entry);
+    return entry.messages;
   }
-  if (!note || !note.title || !note.body) return;
-  const list = messagesByChat.get(note.title) || [];
-  // WhatsApp re-issues a chat's notification with a summary body ("2 novas
-  // mensagens") or verbatim on reconnect; identical tails are the same event.
-  if (list.length > 0 && list[list.length - 1] === note.body) return;
-  list.push(note.body);
-  while (list.length > MAX_MESSAGES) list.shift();
-  messagesByChat.set(note.title, list);
-  schedule();
-});
+  if (count > entry.count && info.preview
+      && entry.messages[entry.messages.length - 1] !== info.preview) {
+    entry.messages.push(info.preview);
+    while (entry.messages.length > MAX_MESSAGES) entry.messages.shift();
+  }
+  entry.count = count;
+  return entry.messages;
+}
 
 function pane() {
   return document.querySelector(SEL.pane);
@@ -135,10 +137,11 @@ function collect() {
     if (chats.length >= MAX_CHATS) continue;
     const info = rowInfo(row);
     if (info) {
+      const count = badgeCount(badge);
       chats.push({
         ...info,
-        count: badgeCount(badge),
-        messages: messagesByChat.get(info.name) || [],
+        count: count,
+        messages: remember(info, count),
       });
     }
   }
@@ -146,8 +149,8 @@ function collect() {
   // A chat read is a chat forgotten: keeping its captured messages would
   // resurrect them the next time a single message arrives.
   const unreadNames = new Set(chats.map(c => c.name));
-  for (const name of messagesByChat.keys()) {
-    if (!unreadNames.has(name)) messagesByChat.delete(name);
+  for (const name of trackByChat.keys()) {
+    if (!unreadNames.has(name)) trackByChat.delete(name);
   }
 
   return { unread, chats };

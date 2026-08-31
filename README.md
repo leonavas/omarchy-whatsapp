@@ -66,9 +66,9 @@ window can live parked out of sight.
 
 | Action | Tray icon | Bar widget |
 |---|---|---|
-| Left click | Open WhatsApp, bring it back, or put it away | Menu: Open or Hide / Launch on Login / Quit WhatsApp |
+| Left click | Open WhatsApp, bring it back, or put it away | Open WhatsApp and focus it |
 | Middle click | Open or focus it, never hides it | Close WhatsApp |
-| Right click | Menu: Open / Hide / Launch on Login / Quit WhatsApp | Same menu as the left click |
+| Right click | Menu: Open / Hide / Launch on Login / Quit WhatsApp | The same menu |
 | Hover | One-line tooltip | Preview of the unread chats (needs the shell app) |
 
 Hiding does not close WhatsApp: the window moves to the `special:whatsapp`
@@ -173,10 +173,11 @@ Through the shell's plugin panel, or directly in `~/.config/omarchy/shell.json`:
 | `windowClass` | `whatsapp` | Case-insensitive substring of the window class to watch |
 | `iconStyle` | `Glyph` | `Glyph` (Nerd Font, bar colored) or `App icon` (the green icon) |
 | `glyph` | `󰖣` | The character drawn by the `Glyph` style |
-| `glyphSize` | `0` | Glyph size in px; `0` follows the bar |
+| `glyphSize` | `0` | Glyph size in px; `0` follows the bar, a point over its icon size |
 | `glyphOffsetY` | `-0.5` | Vertical nudge in px, negative is up |
 | `badge` | `Dot` | `Dot`, `Count` or `None` |
 | `badgeColor` | — | A hex color; empty follows the theme's urgent color |
+| `badgeScale` | `0.6` | Dot diameter as a fraction of the icon — the tray daemon's own scale |
 | `tintWhenUnread` | `false` | Colors the icon while there is something unread; off, only the badge lights up |
 | `hideMode` | `Special workspace` | `Never hide` leaves clicking as focus only |
 | `specialWorkspace` | `whatsapp` | Used as `special:<name>` |

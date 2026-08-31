@@ -20,8 +20,17 @@ BarWidget {
   readonly property string glyph: String(setting("glyph", "󰖣"))
   readonly property int glyphSize: Math.max(0, Number(setting("glyphSize", 0)))
   readonly property real glyphOffsetY: Number(setting("glyphOffsetY", -0.5))
+  // The glyph steps aside so the badge owns the corner rather than sitting on
+  // the mark — the tray daemon's `--glyph-offset 4` on its 64px canvas, in the
+  // same proportion. Constant, badge or no badge: an icon that shifts when a
+  // message lands is worse than one standing a pixel off centre.
+  readonly property int glyphNudgeX: Math.round(Style.bar.iconCanvas / 16)
   readonly property string badgeStyle: String(setting("badge", "Dot"))
   readonly property string badgeOverride: String(setting("badgeColor", ""))
+  // The tray daemon's --badge-scale, same default: the dot as a fraction of
+  // the icon. How big a dot should be is a matter of taste, and taste is what
+  // settings are for.
+  readonly property real badgeScale: Math.max(0.2, Math.min(0.9, Number(setting("badgeScale", 0.6))))
   readonly property bool tintWhenUnread: setting("tintWhenUnread", false) === true
   readonly property string hideMode: String(setting("hideMode", "Special workspace"))
   readonly property string specialName: String(setting("specialWorkspace", "whatsapp"))
@@ -134,13 +143,12 @@ BarWidget {
   readonly property bool useAppIcon: root.iconStyle === "App icon" && root.appIconSource.length > 0
   readonly property color glyphColor: root.unread > 0 && root.tintWhenUnread ? root.urgentColor : root.foreground
 
-  // The bar aligns glyphs by the font's line box, not by their ink, which is
-  // what keeps letters and digits from drifting against each other. An icon
-  // glyph with a taller ink box than its neighbours therefore sticks out at
-  // the top, so this one is drawn a hair under the bar's icon size — measured
-  // against the chevron and the clock, one pixel down lands it on their line.
+  // This glyph is an outline with a tail, and an outline reads smaller than
+  // the solid marks around it at the same point size — set to the bar's icon
+  // font it looked shrunken next to the chevron and the calendar. A point
+  // over makes their ink boxes match, which is what the eye compares.
   readonly property int glyphPixelSize: root.glyphSize > 0
-    ? root.glyphSize : Math.max(8, Style.bar.iconFont - 1)
+    ? root.glyphSize : Math.max(8, Style.bar.iconFont + 1)
 
   // ----------------------------------------------------------------- actions
   //
@@ -376,11 +384,13 @@ BarWidget {
     onPressed: function(mouseButton) {
       if (mouseButton === Qt.MiddleButton) {
         if (root.closeOnMiddle) root.closeWindow()
-      } else {
-        // Left and right both open the menu — the right button because that
-        // is what every tray icon answers with, the left because show/hide
-        // lives inside it as the first entry either way.
+      } else if (mouseButton === Qt.RightButton) {
+        // The menu belongs to the right button alone, the way a tray icon's
+        // does; the left button is for the thing you want nine times out of
+        // ten, which is having WhatsApp in front of you.
         root.menuOpen = !root.menuOpen
+      } else {
+        root.open()
       }
     }
   }
@@ -404,6 +414,7 @@ BarWidget {
         anchors.centerIn: parent
         anchors.horizontalCenterOffset: painted.implicitWidth / 2
           - (metrics.tightBoundingRect.x + Math.max(1, metrics.tightBoundingRect.width) / 2)
+          - root.glyphNudgeX
         anchors.verticalCenterOffset: root.glyphOffsetY
         text: root.glyph
         color: root.glyphColor
@@ -446,17 +457,18 @@ BarWidget {
     z: 2
     // Same rule the tray daemon paints by: a dot at roughly three fifths of
     // the icon, big enough to catch the eye at bar size.
-    height: dotOnly ? Math.round(Style.bar.iconCanvas * 0.6)
+    height: dotOnly ? Math.round(Style.bar.iconCanvas * root.badgeScale)
                     : Math.round(count.implicitHeight + Style.space(3))
     width: dotOnly ? height : Math.max(height, Math.round(count.implicitWidth + Style.space(6)))
     radius: height / 2
     color: root.badgeColor
 
     // Bottom-right, the corner Slack's own tray icon uses, so a row of them
-    // reads as one thing. Pushed towards it but never past the edge of the
-    // widget: the bar is 30px tall and a badge hanging over the rim would be
-    // shaved off by the layer surface.
-    readonly property int corner: Math.round(Style.bar.iconCanvas / 2)
+    // reads as one thing — and *inside* the icon canvas, flush to that corner,
+    // which is what the tray daemon's `-gravity southeast` composite does.
+    // Centred on the corner instead, the way this read before, half the dot
+    // hangs off the mark and the pair stops looking like one icon.
+    readonly property int corner: Math.round((Style.bar.iconCanvas - height) / 2)
     readonly property int maxRight: Math.max(0, Math.round((root.width - width) / 2) - Style.space(1))
     readonly property int maxDown: Math.max(0, Math.round((root.height - height) / 2) - Style.space(1))
 

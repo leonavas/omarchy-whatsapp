@@ -103,6 +103,42 @@ function stateUnread(state) {
   return isFinite(count) && count > 0 ? Math.floor(count) : 0
 }
 
+function countOf(value) {
+  var count = Number(value)
+  return isFinite(count) && count > 0 ? Math.floor(count) : 0
+}
+
+// How many unread chats of each kind are waiting. The shell counts both over
+// the whole sidebar, past the cap on how many chats travel in the file; the
+// scan over `chats` is the fallback for a state file written before the shell
+// learned the difference, and the title pipe has no idea either way — which is
+// why "no group and no direct" has to read as "unknown", not as "none".
+function stateGroupUnread(state) {
+  if (!state) return 0
+  if (state.groups !== undefined || state.direct !== undefined) return countOf(state.groups)
+  return countKind(state, "group")
+}
+
+function stateDirectUnread(state) {
+  if (!state) return 0
+  if (state.groups !== undefined || state.direct !== undefined) return countOf(state.direct)
+  return countKind(state, "direct")
+}
+
+function countKind(state, kind) {
+  var total = 0
+  var list = Array.isArray(state.chats) ? state.chats : []
+  for (var i = 0; i < list.length; i++) {
+    var chat = list[i]
+    if (!chat || typeof chat !== "object") continue
+    // A chat with no kind at all predates the split; it counts as direct, the
+    // color this widget has always painted.
+    var value = String(chat.kind || "direct")
+    if (value === kind) total += 1
+  }
+  return total
+}
+
 // The rows the hover popup renders, already trimmed and clamped so the QML
 // side can trust every field to exist.
 function stateChats(state, max) {
@@ -126,6 +162,7 @@ function stateChats(state, max) {
       preview: String(chat.preview || "").trim(),
       time: String(chat.time || "").trim(),
       count: isFinite(count) && count > 0 ? Math.floor(count) : 1,
+      kind: String(chat.kind || "direct") === "group" ? "group" : "direct",
       messages: messages,
     })
   }

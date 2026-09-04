@@ -22,6 +22,7 @@ BarWidget {
   readonly property real glyphOffsetY: Number(setting("glyphOffsetY", -0.5))
   readonly property string badgeStyle: String(setting("badge", "Dot"))
   readonly property string badgeOverride: String(setting("badgeColor", ""))
+  readonly property string groupOverride: String(setting("groupColor", "#3b82f6"))
   // The tray daemon's --badge-scale, same default: the dot as a fraction of
   // the icon. How big a dot should be is a matter of taste, and taste is what
   // settings are for.
@@ -41,7 +42,16 @@ BarWidget {
   // ------------------------------------------------------------------- theme
   readonly property color foreground: bar ? bar.barForeground : Color.foreground
   readonly property color urgentColor: bar ? bar.urgent : Color.urgent
-  readonly property color badgeColor: root.badgeOverride.length > 0 ? root.badgeOverride : root.urgentColor
+  // Two colors, so the bar answers "who is it?" without opening anything: the
+  // theme's urgent color — red, in most themes — for a conversation with one
+  // person, blue for a group. A group is rarely the message you have to drop
+  // everything for; a direct one often is, which is also why a mix of both
+  // paints direct: the badge shows the most urgent thing waiting, not a
+  // majority vote.
+  readonly property color directColor: root.badgeOverride.length > 0 ? root.badgeOverride : root.urgentColor
+  readonly property color groupColor: root.groupOverride.length > 0 ? root.groupOverride : root.directColor
+  readonly property bool groupsOnly: root.groupUnread > 0 && root.directUnread === 0
+  readonly property color badgeColor: root.groupsOnly ? root.groupColor : root.directColor
   // The bar's own background can be translucent; the count sits on the badge,
   // not on the bar, so it takes the opaque version of that color.
   readonly property color badgeTextColor: Qt.rgba(Color.background.r, Color.background.g, Color.background.b, 1)
@@ -77,6 +87,12 @@ BarWidget {
   readonly property int unread: root.stateLive
     ? Model.stateUnread(root.chatState)
     : Model.unreadFromTitle(root.windowTitle)
+
+  // Only the shell knows a group from a one-to-one chat; the title pipe counts
+  // and says nothing else, so both stay at zero there and the badge keeps the
+  // single color it has always had.
+  readonly property int groupUnread: root.stateLive ? Model.stateGroupUnread(root.chatState) : 0
+  readonly property int directUnread: root.stateLive ? Model.stateDirectUnread(root.chatState) : 0
 
   FileView {
     id: stateFile
@@ -136,7 +152,7 @@ BarWidget {
   // ------------------------------------------------------------------- icons
   readonly property string appIconSource: Quickshell.iconPath("whatsapp", true)
   readonly property bool useAppIcon: root.iconStyle === "App icon" && root.appIconSource.length > 0
-  readonly property color glyphColor: root.unread > 0 && root.tintWhenUnread ? root.urgentColor : root.foreground
+  readonly property color glyphColor: root.unread > 0 && root.tintWhenUnread ? root.badgeColor : root.foreground
 
   // This glyph is an outline with a tail, and an outline reads smaller than
   // the solid marks around it — a point under the bar's icon font, which is
@@ -549,6 +565,18 @@ BarWidget {
               width: parent.width
               height: nameText.implicitHeight
 
+              // The same red-or-blue the badge paints, per row: the badge
+              // says a group is waiting, this says which of them.
+              Rectangle {
+                id: kindDot
+                width: Math.round(Style.font.bodySmall * 0.5)
+                height: width
+                radius: width / 2
+                color: chatRow.modelData.kind === "group" ? root.groupColor : root.directColor
+                anchors.left: parent.left
+                anchors.verticalCenter: nameText.verticalCenter
+              }
+
               Text {
                 id: nameText
                 text: chatRow.modelData.name
@@ -557,7 +585,8 @@ BarWidget {
                 font.pixelSize: Style.font.bodySmall
                 font.bold: true
                 elide: Text.ElideRight
-                anchors.left: parent.left
+                anchors.left: kindDot.right
+                anchors.leftMargin: Style.space(6)
                 anchors.right: timeText.left
                 anchors.rightMargin: Style.space(8)
               }
@@ -586,7 +615,10 @@ BarWidget {
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.bodySmall
                 wrapMode: Text.Wrap
-                width: chatInner.width
+                // Indented to the name above it, so the kind dot reads as a
+                // bullet for the whole chat rather than for its title line.
+                x: kindDot.width + Style.space(6)
+                width: chatInner.width - x
               }
             }
           }

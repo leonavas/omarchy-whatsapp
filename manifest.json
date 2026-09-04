@@ -34,6 +34,7 @@
       "glyphOffsetY": -0.5,
       "badge": "Dot",
       "badgeColor": "",
+      "groupColor": "#3b82f6",
       "badgeScale": 0.45,
       "tintWhenUnread": false,
       "hideMode": "Special workspace",
@@ -115,9 +116,16 @@
       {
         "key": "badgeColor",
         "type": "string",
-        "label": "Badge color",
+        "label": "Badge color (one-to-one chats)",
         "defaultValue": "",
-        "description": "A hex color such as #25d366. Empty follows the theme's urgent color, like the rest of the bar."
+        "description": "A hex color such as #25d366, used while a conversation with a single person is waiting. Empty follows the theme's urgent color — red in most themes — like the rest of the bar."
+      },
+      {
+        "key": "groupColor",
+        "type": "string",
+        "label": "Badge color (groups)",
+        "defaultValue": "#3b82f6",
+        "description": "The color the badge takes when only groups are unread, so the bar tells a group message from a personal one at a glance. A mix of both paints the one-to-one color: the badge shows the most urgent thing waiting. Empty uses the same color for both. Needs the bundled shell app — the plain browser web app only publishes a count."
       },
       {
         "key": "badgeScale",

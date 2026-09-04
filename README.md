@@ -2,9 +2,9 @@
 
 WhatsApp as a tray icon on the Omarchy desktop, the way Slack's behaves: click
 to open it, click again to put it away without closing it, and a red dot on the
-icon while there are unread chats. With the bundled shell app, hovering the bar
-icon previews the unread chats — contact, last message, count — in the bar's
-own UI.
+icon while there are unread chats — blue when what is waiting is only groups.
+With the bundled shell app, hovering the bar icon previews the unread chats —
+contact, last message, count — in the bar's own UI.
 
 WhatsApp has no Linux client and a browser web app publishes no tray icon, so
 this builds one: a content script counts the unread chats inside the page, and
@@ -125,9 +125,9 @@ matches `whatsapp-for-linux` and friends.
 `shell/whatsapp-shell` runs WhatsApp Web in its own Electron window instead of
 a Chromium `--app` one. Same page, one difference that matters: the script
 inside it belongs to us, so more than a number fits through the pipe. It hands
-the unread chats — contact, last message, count, time — to the bar widget,
-which shows them in a popup when you hover the icon. Clicking a row jumps
-straight to that conversation.
+the unread chats — contact, last message, count, time, and whether the chat is
+a group — to the bar widget, which shows them in a popup when you hover the
+icon. Clicking a row jumps straight to that conversation.
 
 Nothing to build or install beyond Electron itself (`pacman -S electron`,
 already present on a box with another Electron app). The bar widget launches
@@ -176,7 +176,8 @@ Through the shell's plugin panel, or directly in `~/.config/omarchy/shell.json`:
 | `glyphSize` | `0` | Glyph size in px; `0` follows the bar's icon size |
 | `glyphOffsetY` | `-0.5` | Vertical nudge in px, negative is up |
 | `badge` | `Dot` | `Dot`, `Count` or `None` |
-| `badgeColor` | — | A hex color; empty follows the theme's urgent color |
+| `badgeColor` | — | The dot's color for a chat with one person; a hex color, empty follows the theme's urgent color |
+| `groupColor` | `#3b82f6` | The dot's color when only groups are unread; empty paints groups like everything else |
 | `badgeScale` | `0.45` | Dot diameter as a fraction of the icon — the tray daemon's own scale |
 | `tintWhenUnread` | `false` | Colors the icon while there is something unread; off, only the badge lights up |
 | `hideMode` | `Special workspace` | `Never hide` leaves clicking as focus only |

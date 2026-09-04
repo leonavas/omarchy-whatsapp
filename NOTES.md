@@ -63,6 +63,27 @@ and a chat is "unread" by the same badge test and archived exclusion the
 content script uses. When WhatsApp redoes its DOM, that one file is the blast
 radius.
 
+**Group or one-to-one**, the thing the badge's color says, is the one fact the
+sidebar does not hand over: no row, and no element inside one, carries the chat
+jid — the only place `@g.us` would spell the answer out. Two proxies for it,
+checked in this order:
+
+1. **The avatar of a group without a picture.** It has moved house — a
+   `data-icon="default-group"` span in the builds that had `data-icon`, an
+   inline `<svg><title>ic-group-filled</title>` in the one this was last
+   checked against (where a person's is `person-refreshed-outline-thin`) — so
+   both are looked at and matched on the word "group" rather than the full
+   name. Right whenever it fires; silent for a group that has a picture.
+2. **The sender prefix.** A group's preview line reads "Ana: oi" and a
+   one-to-one's never does. An unread chat's last message is incoming by
+   definition, so the prefix is there exactly when it is needed. The cost is a
+   one-to-one message that happens to open with "word: ", which is why this
+   only gets asked after the avatar has said nothing.
+
+`--probe` counts both signals. Both at zero while unread groups sit in the
+list is the sign that this went stale — the badge then paints everything the
+one-to-one color, which is the old behaviour rather than a wrong one.
+
 Two Electron details that cost a round each: the default user agent advertises
 `Electron/` and WhatsApp turns it away — it is stripped before the first load —
 and the Wayland app id comes from the `--wayland-app-id` *Chromium switch*

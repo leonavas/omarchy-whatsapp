@@ -88,6 +88,20 @@ function handleArgv(argv) {
           out.numeric_badges = digits;
           out.titled_spans = pane.querySelectorAll("span[title]").length;
           out.dir_auto = pane.querySelectorAll('span[dir="auto"]').length;
+          // The two signals the group/direct split rides on. Both at zero on
+          // a list that has unread groups in it means the badge has stopped
+          // telling one kind of chat from the other.
+          out.group_icons = pane.querySelectorAll('[data-icon*="group"]').length;
+          var titled = 0;
+          pane.querySelectorAll("svg title").forEach(function (t) {
+            if (/group/i.test(t.textContent || "")) titled += 1;
+          });
+          out.group_icon_titles = titled;
+          var prefixed = 0;
+          pane.querySelectorAll("span[title]").forEach(function (s) {
+            if (/^~?\\s?[^:\\n]{1,30}:\\s/.test(s.getAttribute("title") || "")) prefixed += 1;
+          });
+          out.sender_prefixes = prefixed;
           return JSON.stringify(out);
         })()`).then((result) => {
           console.log("whatsapp-shell: probe=" + result);

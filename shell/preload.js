@@ -24,7 +24,22 @@ const SEL = {
   // The contact name (and often the message preview) sit in spans that
   // carry their full text in a title attribute.
   titled: "span[title]",
+  // A group with no picture draws WhatsApp's own two-person avatar. Which
+  // element carries it has moved — `data-icon="default-group"` in the builds
+  // that had data-icon, an inline <svg><title>ic-group-filled</title> in the
+  // build this was last checked against — but the word "group" has survived
+  // every one of those renames, so both places are read and matched loosely.
+  groupIcon: '[data-icon*="group"]',
+  iconTitle: "svg title",
 };
+
+const GROUP_IN_ICON = /group/i;
+
+// The sidebar prefixes a group's preview line with who wrote it — "Ana: oi" —
+// and never does that for a one-to-one chat. An unread chat's last message is
+// incoming by definition, so the prefix is there whenever it matters — which
+// is what covers the groups that do have a picture and so draw no icon.
+const SENDER_PREFIX = /^~?\s?[^:\n]{1,30}:\s/;
 
 const MAX_CHATS = 20;
 const MAX_MESSAGES = 10;
@@ -81,6 +96,18 @@ function badgeCount(badge) {
   return isFinite(count) && count > 0 ? count : 1;
 }
 
+// Group or one-to-one, from two independent signals. The avatar comes first:
+// it reads the chat's identity and cannot be wrong. The prefix reads the
+// message instead — it is what answers for a group that has a picture, at the
+// price of being fooled by a one-to-one message opening with "word: ".
+function isGroupRow(row, preview) {
+  if (row.querySelector(SEL.groupIcon)) return true;
+  for (const title of row.querySelectorAll(SEL.iconTitle)) {
+    if (GROUP_IN_ICON.test(title.textContent || "")) return true;
+  }
+  return SENDER_PREFIX.test(preview || "");
+}
+
 // The row renders as [name, time] over [preview, badge], and innerText
 // yields those lines in that order — which is what the time and the preview
 // fallback lean on when the titled spans are not there to be read.
@@ -120,30 +147,34 @@ function rowInfo(row) {
     if (shortest.length <= 16) time = shortest;
   }
 
-  return { name, preview, time };
+  return { name, preview, time, kind: isGroupRow(row, preview) ? "group" : "direct" };
 }
 
 function collect() {
   const side = pane();
-  if (!side) return { unread: 0, chats: [] };
+  if (!side) return { unread: 0, groups: 0, direct: 0, chats: [] };
 
   const chats = [];
   let unread = 0;
+  // Counted over every unread row, not only the ones that fit in `chats`, so
+  // the widget's badge can be colored by what is waiting even when the list
+  // sent for the preview is capped.
+  let groups = 0;
+  let direct = 0;
   for (const row of side.querySelectorAll(SEL.row)) {
     if (row.closest(SEL.archived) || row.querySelector(SEL.archived)) continue;
     const badge = badgeIn(row);
     if (!badge) continue;
     unread += 1;
-    if (chats.length >= MAX_CHATS) continue;
     const info = rowInfo(row);
-    if (info) {
-      const count = badgeCount(badge);
-      chats.push({
-        ...info,
-        count: count,
-        messages: remember(info, count),
-      });
-    }
+    if (info && info.kind === "group") groups += 1; else direct += 1;
+    if (!info || chats.length >= MAX_CHATS) continue;
+    const count = badgeCount(badge);
+    chats.push({
+      ...info,
+      count: count,
+      messages: remember(info, count),
+    });
   }
 
   // A chat read is a chat forgotten: keeping its captured messages would
@@ -153,7 +184,7 @@ function collect() {
     if (!unreadNames.has(name)) trackByChat.delete(name);
   }
 
-  return { unread, chats };
+  return { unread, groups, direct, chats };
 }
 
 function publishTitle(count) {

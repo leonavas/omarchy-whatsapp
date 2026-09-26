@@ -29,10 +29,10 @@ BarWidget {
   readonly property real badgeScale: Math.max(0.2, Math.min(0.9, Number(setting("badgeScale", 0.45))))
   readonly property bool tintWhenUnread: setting("tintWhenUnread", false) === true
   readonly property string hideMode: String(setting("hideMode", "Special workspace"))
-  readonly property string specialName: String(setting("specialWorkspace", "whatsapp"))
-  readonly property bool startHidden: setting("startHidden", true) !== false
-  readonly property int hideAfterLaunch: Math.max(0, Number(setting("hideAfterLaunch", 8)))
+  readonly property string specialName: String(setting("specialWorkspace", "scratchpad"))
+  readonly property bool openInSpecial: setting("openInSpecial", true) !== false
   readonly property bool autoStart: setting("autoStart", false) === true
+  readonly property bool launchForeground: setting("launchForeground", false) === true
   readonly property bool dimWhenClosed: setting("dimWhenClosed", true) !== false
   readonly property bool hideWhenNotRunning: setting("hideWhenNotRunning", false) === true
   readonly property bool closeOnMiddle: setting("middleClickCloses", true) !== false
@@ -69,6 +69,7 @@ BarWidget {
   readonly property string windowTitle: Model.titleOf(root.window)
   readonly property bool focused: Model.isActive(root.window)
   readonly property bool parked: Model.isParked(root.window, root.specialName)
+  readonly property bool specialShown: Model.specialShown(Hyprland, root.specialName)
 
   // ------------------------------------------------------------- shell state
   //
@@ -124,6 +125,26 @@ BarWidget {
   onRunningChanged: {
     stateFile.reload()
     if (root.running) root.dismissed = false
+    // A WhatsApp window that shows up while the shell is running — from this
+    // widget, autostart or a terminal — goes straight to the special
+    // workspace. `settled` keeps a shell restart from yanking one already open.
+    if (root.running && root.openInSpecial && settleTimer.settled) root.placeInSpecial()
+    if (root.running && root.launchForeground && settleTimer.settled) foregroundTimer.restart()
+  }
+  // "Launch in Foreground": once the window has landed in the special
+  // workspace, bring that workspace up and focus it. Delayed a beat so the
+  // move — ours or a window rule's — has settled first.
+  Timer {
+    id: foregroundTimer
+    interval: 400
+    onTriggered: root.showWindow()
+  }
+  Timer {
+    id: settleTimer
+    property bool settled: false
+    interval: 3000
+    running: true
+    onTriggered: settled = true
   }
   Timer {
     interval: 5000
@@ -189,11 +210,6 @@ BarWidget {
   function launch() {
     if (root.launchCommand.length > 0) Util.execDetached(root.launchCommand)
     else Util.execArgv([root.shellLauncher()])
-    if (root.startHidden && root.hideMode === "Special workspace") {
-      parkTimer.attempts = 0
-      parkTimer.interval = Math.max(1, root.hideAfterLaunch) * 1000
-      parkTimer.restart()
-    }
   }
 
   // Focusing a window that sits on another workspace lands the *workspace* and
@@ -214,6 +230,7 @@ BarWidget {
   function park() {
     var address = root.windowAddress()
     if (address.length === 0) return
+    if (root.parked && root.specialShown) { root.toggleSpecial(); return }
     var workspace = "special:" + root.specialName
     root.dispatch(
       'hl.dsp.window.move({ window = "' + address + '", workspace = "' + workspace + '", silent = true })',
@@ -227,6 +244,13 @@ BarWidget {
   function showWindow() {
     var address = root.windowAddress()
     if (address.length === 0) return
+    // Living in the special workspace: bring the workspace up around it
+    // instead of pulling the window out onto a regular one.
+    if (root.openInSpecial && root.parked) {
+      if (!root.specialShown) root.toggleSpecial()
+      root.focusWindow()
+      return
+    }
     var target = root.homeWorkspace.length > 0 ? root.homeWorkspace
                                                : Model.activeWorkspaceName(Hyprland)
     if (target.length > 0) {
@@ -235,6 +259,23 @@ BarWidget {
         "movetoworkspace " + target + "," + address)
     }
     root.focusWindow()
+  }
+
+  function toggleSpecial() {
+    root.dispatch('hl.dsp.workspace.toggle_special("' + root.specialName + '")',
+                  "togglespecialworkspace " + root.specialName)
+  }
+
+  // Straight into special:<name>, in the background: nothing is shown or
+  // focused. The shell app keeps rendering while hidden (see main.js), so the
+  // page still loads out of sight.
+  function placeInSpecial() {
+    var address = root.windowAddress()
+    if (address.length === 0 || root.parked) return
+    var workspace = "special:" + root.specialName
+    root.dispatch(
+      'hl.dsp.window.move({ window = "' + address + '", workspace = "' + workspace + '", silent = true })',
+      "movetoworkspacesilent " + workspace + "," + address)
   }
 
   function closeWindow() {
@@ -246,8 +287,8 @@ BarWidget {
   // One button, the whole life cycle: open it, bring it back, put it away.
   function toggle() {
     if (!root.running) root.launch()
-    else if (root.parked) root.showWindow()
     else if (root.focused && root.hideMode === "Special workspace") root.park()
+    else if (root.parked) root.showWindow()
     else root.focusWindow()
   }
 
@@ -271,11 +312,14 @@ BarWidget {
   // menu's name: the bar comes up at login and autoStart opens WhatsApp.
   // Persisted through the shell's own settings writer, so it survives the
   // session and shows up in the plugin panel like any other setting.
-  function toggleAutoStart() {
+  function toggleAutoStart() { root.writeSetting("autoStart", !root.autoStart) }
+  function toggleLaunchForeground() { root.writeSetting("launchForeground", !root.launchForeground) }
+
+  function writeSetting(key, value) {
     var shell = root.bar ? root.bar.shell : null
     if (!shell || typeof shell.updateEntryInline !== "function") return
     var merged = JSON.parse(JSON.stringify(root.settings || {}))
-    merged.autoStart = !root.autoStart
+    merged[key] = value
     shell.updateEntryInline(root.moduleName, merged)
   }
 
@@ -294,22 +338,6 @@ BarWidget {
     var peers = root.bar && typeof root.bar.moduleWidgets === "function"
       ? root.bar.moduleWidgets(root.moduleName) : []
     return peers.length === 0 || peers[0] === root
-  }
-
-  // The window is parked only after the page has had time to load: WhatsApp
-  // never finishes coming up in a surface the compositor never shows.
-  Timer {
-    id: parkTimer
-    property int attempts: 0
-    repeat: false
-    onTriggered: {
-      if (root.window && !root.parked) { root.park(); return }
-      if (root.window) return
-      if (parkTimer.attempts >= 5) return
-      parkTimer.attempts += 1
-      parkTimer.interval = 2000
-      parkTimer.restart()
-    }
   }
 
   Timer {
@@ -736,6 +764,16 @@ BarWidget {
         onActivated: {
           root.close()
           root.toggleAutoStart()
+        }
+      }
+
+      MenuEntry {
+        label: "Launch in Foreground"
+        showCheck: true
+        checked: root.launchForeground
+        onActivated: {
+          root.close()
+          root.toggleLaunchForeground()
         }
       }
 

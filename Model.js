@@ -186,6 +186,14 @@ function isParked(toplevel, specialName) {
   return workspaceName(toplevel) === "special:" + name
 }
 
+// Whether special:<name> is open on the focused monitor right now.
+function specialShown(hyprland, specialName) {
+  if (!hyprland || !hyprland.focusedMonitor) return false
+  var ipc = hyprland.focusedMonitor.lastIpcObject
+  var special = ipc ? ipc["specialWorkspace"] : null
+  return !!special && String(special.name || "") === "special:" + String(specialName || "")
+}
+
 // Where to send a window that has no remembered home: wherever you are.
 function activeWorkspaceName(hyprland) {
   if (!hyprland) return ""

@@ -28,6 +28,12 @@ const statePath = path.join(runtimeDir, "state.json");
 app.commandLine.appendSwitch("wayland-app-id", "whatsapp-shell");
 app.commandLine.appendSwitch("class", "whatsapp-shell");
 
+// The window opens straight into a hidden special workspace; Chromium would
+// treat it as occluded and stall the page, so WhatsApp never finished loading.
+app.commandLine.appendSwitch("disable-renderer-backgrounding");
+app.commandLine.appendSwitch("disable-background-timer-throttling");
+app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
+
 // One window, ever. A second invocation exists only to carry arguments to
 // the first (see `second-instance` below).
 if (!app.requestSingleInstanceLock()) {
@@ -138,6 +144,7 @@ function createWindow() {
       nodeIntegration: false,
       sandbox: false,
       spellcheck: true,
+      backgroundThrottling: false,
     },
   });
 

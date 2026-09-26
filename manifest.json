@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "leonavas.whatsapp",
   "name": "WhatsApp",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "author": "leonavas",
   "license": "MIT",
   "description": "A tray-style WhatsApp button for the bar: opens the web app (or the bundled shell app), parks it out of sight, carries the unread count as a badge, and previews unread chats on hover.",
@@ -38,10 +38,10 @@
       "badgeScale": 0.45,
       "tintWhenUnread": false,
       "hideMode": "Special workspace",
-      "specialWorkspace": "whatsapp",
-      "startHidden": true,
-      "hideAfterLaunch": 8,
+      "specialWorkspace": "scratchpad",
+      "openInSpecial": true,
       "autoStart": false,
+      "launchForeground": false,
       "dimWhenClosed": true,
       "hideWhenNotRunning": false,
       "middleClickCloses": true,
@@ -158,32 +158,29 @@
         "key": "specialWorkspace",
         "type": "string",
         "label": "Name of the special workspace",
-        "defaultValue": "whatsapp",
-        "description": "Used as special:<name>."
+        "defaultValue": "scratchpad",
+        "description": "Used as special:<name>. \"scratchpad\" is Omarchy's own, toggled with SUPER+S."
       },
       {
-        "key": "startHidden",
+        "key": "openInSpecial",
         "type": "boolean",
-        "label": "Park the window right after opening it",
+        "label": "Open straight into the special workspace",
         "defaultValue": true,
-        "description": "The window loads, then disappears into the special workspace on its own, leaving only the bar icon."
-      },
-      {
-        "key": "hideAfterLaunch",
-        "type": "integer",
-        "label": "Seconds before parking it (s)",
-        "min": 0,
-        "max": 60,
-        "step": 1,
-        "defaultValue": 8,
-        "description": "Time for the page to load before it is put away. Too short and WhatsApp may never finish loading."
+        "description": "The window lives in special:<name>: every new WhatsApp window moves there in the background, and a click shows or hides that workspace instead of moving the window around."
       },
       {
         "key": "autoStart",
         "type": "boolean",
         "label": "Open WhatsApp when the shell starts",
         "defaultValue": false,
-        "description": "The icon's menu toggles this as \"Launch on Login\". With \"Park the window right after opening it\", WhatsApp comes up on login already out of the way, counting messages in the bar."
+        "description": "The icon's menu toggles this as \"Launch on Login\"."
+      },
+      {
+        "key": "launchForeground",
+        "type": "boolean",
+        "label": "Show and focus WhatsApp when it opens",
+        "defaultValue": false,
+        "description": "Off, it opens in the background, hidden in the special workspace. The icon's menu toggles this as \"Launch in Foreground\"."
       },
       {
         "key": "dimWhenClosed",

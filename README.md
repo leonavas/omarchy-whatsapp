@@ -162,7 +162,7 @@ Through the shell's plugin panel, or directly in `~/.config/omarchy/shell.json`:
 {
   "id": "leonavas.whatsapp",
   "badge": "Dot",
-  "startHidden": true,
+  "openInSpecial": true,
   "autoStart": false
 }
 ```
@@ -181,10 +181,10 @@ Through the shell's plugin panel, or directly in `~/.config/omarchy/shell.json`:
 | `badgeScale` | `0.45` | Dot diameter as a fraction of the icon — the tray daemon's own scale |
 | `tintWhenUnread` | `false` | Colors the icon while there is something unread; off, only the badge lights up |
 | `hideMode` | `Special workspace` | `Never hide` leaves clicking as focus only |
-| `specialWorkspace` | `whatsapp` | Used as `special:<name>` |
-| `startHidden` | `true` | Parks the window shortly after opening it |
-| `hideAfterLaunch` | `8` | Seconds of loading before it is parked |
+| `specialWorkspace` | `scratchpad` | Used as `special:<name>`; `scratchpad` is Omarchy's, on SUPER+S |
+| `openInSpecial` | `true` | New WhatsApp windows open in the background, in the special workspace; a click shows or hides it |
 | `autoStart` | `false` | Opens WhatsApp when the shell starts — the icon's menu toggles this as "Launch on Login" |
+| `launchForeground` | `false` | Shows and focuses WhatsApp when it opens; off, it opens in the background — the icon's menu toggles this as "Launch in Foreground" |
 | `dimWhenClosed` | `true` | Dims the icon while WhatsApp is not running |
 | `hideWhenNotRunning` | `false` | Removes the icon from the bar while it is closed |
 | `middleClickCloses` | `true` | Turn off to keep the middle button inert |
